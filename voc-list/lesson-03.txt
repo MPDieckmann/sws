@@ -1,0 +1,35 @@
+3	dann	`as	אז		
+3	wo?	`eifo	איפה		
+3	in	be…	בְּ…		
+3	bitte	bewakascha	בבקשה		
+3	sicher; klar	betach	בטח		
+3	Haus	bajit	בית	m.Sg.	ז'
+3	Häuser	batim	בתים	m.Pl.	ז"ר
+3	heute	hajom	היום	m.Sg.	ז'
+3	Tag	jom	יום	m.Sg.	ז'
+3	Tage	jamim	יומים	m.Pl.	ז"ר
+3	nichts	klum	כלום		
+3	lernen	lomed	לומד		
+3	lernen	lilmod	ללמוד		
+3	Wie geht es?	ma nischma	מה נשמע		
+3	Saft	miz	מיץ	m.Sg.	ז'
+3	Säfte	mizim	מיצים	m.Pl.	ז"ר
+3	Büro	mißrad	משרד	m.Sg.	ז'
+3	Büros	mißradim	משרדים	m.Pl.	ז"ר
+3	Herr	mar	מר		
+3	Buch	ßefer	ספר	m.Sg.	ז'
+3	Bücher	ßfarim	ספרים	m.Pl.	ז"ר
+3	arbeiten	´owed	עובד		
+3	arbeiten	la´awod	לעבוד		
+3	machen	´oße	עושה		
+3	machen	la´aßot	לעשות		
+3	jetzt	´achschaw	עכשיו		
+3	mit	´im	עם		
+3	mögen; wollen	roze	רוצה		
+3	mögen; wollen	lirzot	לרצות		
+3	trinken	schote	שותה		
+3	trinken	lischtot	לשתות		
+3	dort	scham	שם		
+3	danke	toda	תודה		
+3	Orange	tapus	תפוז	m.Sg.	ז'
+3	Orangen	tapusim	תפוזים	m.Pl.	ז"ר

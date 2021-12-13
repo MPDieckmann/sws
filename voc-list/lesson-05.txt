@@ -1,0 +1,89 @@
+5	welcher, was für einer	`eijse	איזנ	
+5	welcher, was für einer	`ejso	איזו	
+5	es gibt nicht; kein	`ejn	אין	
+5	frag bloß nicht!	`al tisch`al!	אל תשאל!	ugs.
+5	Mutter	`ima	אימא	f.Sg.
+5	Mütter	`imahot	אימהות	f.Pl.
+5	bei	`ezel	אצל	
+5	kommen	ba	בא	
+5	kommen	lawo	לבוא	
+5	Morgen	boker	בוקר	m.Sg.
+5	Morgen	bkarim	בקרים	m.Pl.
+5	gesund	bari	בריא	m.Sg.
+5	gesund	bri`a	בריאה	f.Sg.
+5	gesund	bri`im	בריאים	m.Pl.
+5	gesund	bri`ot	בריאות	f.Pl.
+5	groß	gadol	גדול	m.Sg.
+5	groß	gdola	גדולה	f.Sg.
+5	groß	gdolim	גדולים	m.Pl.
+5	groß	gdolot	גדולות	f.Pl.
+5	Friedensgrüße	dasch	ד"ש	
+5	Friedensgrüße	drischat schalom	דרישת שלום	
+5	wohnen	gar	גר	
+5	wohnen	lagur	לגור	
+5	Wohnung	dira	דירה	f.Sg.
+5	Wohnungen	dirot	דירות	f.Pl.
+5	Süden	darom	דרום	
+5	nach Hause	habajta	הביתה	
+5	viel	harbe	הרבה	
+5	Freund	chawer	חבר	m.Sg.
+5	Freundin	chawera	חברה	f.Sg.
+5	Freunde	chawerim	חברים	m.Pl.
+5	Freundinnen	chawerot	חברות	f.Pl.
+5	Zimmer	cheder	חדר	m.Sg.
+5	Zimmer	chadarim	חדרים	m.Pl.
+5	leben	chaj	חי	
+5	leben	lichjot	לחיות	
+5	Leben	chajim	חיים	m.Pl.
+5	fünf	chamesch	חמש	
+5	fliegen	taß	טס	
+5	fliegen	latuß	לטוס	
+5	frisch	tari	טרי	m.Sg.
+5	frisch	trija	טריה	f.Sg.
+5	frisch	trijim	טריים	m.Pl.
+5	frisch	trijot	טריות	f.Pl.
+5	schön! (Ausruf)	jofi!	יופי!	
+5	Meer	jam	ים	m.Sg.
+5	Meer	jamim	ימים	m.Pl.
+5	es gibt	jesch	יש	
+5	Stuhl	kiße	כיסא	m.Sg.
+5	Stühle	kiß`ot	כסאות	m.Pl.
+5	alles; jede(r)	kol	כל	
+5	(Schul) Klasse	kita	כיתה	f.Sg.
+5	(Schul) Klassen	kitot	כיתות	f.Pl.
+5	alle; ganz	kol ha…	כל ה...	
+5	wohin?	le`an?	לאן?	
+5	das Leben genießen	l´aßot chajim	לעשות חיים	
+5	Heft	machberet	מחברת	f.Sg.
+5	Hefte	machbarot	מחברות	f.Pl.
+5	Hotel	malon	מלון	m.Sg.
+5	Hotels	melonot	מלונות	m.Pl.
+5	König	melech	מלך	m.Sg.
+5	Zahl; Nummer	mißpar	מספר	m.Sg.
+5	Zahlen; Nummern	mißparim	מספרים	m.Pl.
+5	ausgezeichnet	mezujan	מצוין	m.Sg.
+5	ausgezeichnet	mezujenet	מצוינת	f.Sg.
+5	ausgezeichnet	mezujanim	מצוינים	m.Pl.
+5	ausgezeichnet	mezujanot	מצוינות	f.Pl.
+5	Familie	mischpacha	משפחה	f.Sg.
+5	Familien	mischpachot	משפחות	f.Pl.
+5	Welt	´olam	עולם	m.Sg.
+5	Welten	´olamot	עולמות	m.Pl.
+5	auf; über	´al	על	
+5	neben	´al jad	על יד	
+5	Obst	pri	פרי	m.Sg.
+5	Obst	perot	פירות	m.Pl.
+5	klein	katan	קטן	m.Sg.
+5	klein	ktana	קטנה	f.Sg.
+5	klein	ktanim	קטנים	m.Pl.
+5	klein	ktanot	קטנות	f.Pl.
+5	Straße	rechow	רחוב	m.Sg.
+5	Straßen	rechowot	רחובות	m.Pl.
+5	Granatapfel	rimon	רימון	m.Sg.
+5	Granatäpfel	rimonim	רימונים	m.Pl.
+5	Tisch	schulchan	שולחן	m.Sg.
+5	Tische	schulchanot	שולחנות	m.Pl.
+5	drei	schalosch	שלוש	
+5	Sonne	schemesch	שמש	f.Sg.
+5	Apfel	tapuach	תפוח	m.Sg.
+5	Äpfel	tapuchim	תפוחים	m.Pl.

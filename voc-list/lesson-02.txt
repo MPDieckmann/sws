@@ -1,0 +1,33 @@
+2	das sind	`ele	אלה	m.Pl.; f.Pl.	
+2	neu	chadasch	חדש	m.Sg.	ז'
+2	neu	chadascha	חדשה	f.Sg.	נ'
+2	neu	chadaschim	חדשים	m.Pl.	ז"ר
+2	neu	chadaschot	חדשות	f.Pl.	נ"ר
+2	gut	tow	טוב	m.Sg.	ז'
+2	gut	towa	טובה	f.Sg.	נ'
+2	gut	towim	טובים	m.Pl.	ז"ר
+2	gut	towot	טובות	f.Pl.	נ"ר
+2	Kind; Junge	jeled	ילד	m.Sg.	ז'
+2	Kind; Mädchen	jalda	ילדה	f.Sg.	נ'
+2	Kinder; Jungen	jeladim	ילדים	m.Pl.	ז"ר
+2	Kinder; Mädchen	jeladot	ילדות	f.Pl.	נ"ר
+2	schön; hübsch	jafe	יפה	m.Sg.	ז'
+2	schön; hübsch	jafa	יפה	f.Sg.	נ'
+2	schön; hübsch	jafim	יפים	m.Pl.	ז"ר
+2	schön; hübsch	jafot	יפות	f.Pl.	נ"ר
+2	Brot	lechem	לחם	m.Sg.	ז'
+2	Brote	lechamim	לחמים	m.Pl.	ז"ר
+2	aus	mi…	מ…		
+2	was	ma	מה		
+2	von hier	mipo	מפה		
+2	richtig	nachon	נכון		
+2	Entschuldigung	ßlicha	סליחה		
+2	Buch	ßefer	ספר	m.Sg.	ז'
+2	Bücher	ßfarim	ספרים	m.Pl.	ז"ר
+2	Kuchen	´uga	עוגה	f.Sg.	נ'
+2	Kuchen	´ugot	עוגות	f.Pl.	נ"ר
+2	hier	po	פה		
+2	schlecht	ra´	רע	m.Sg.	ז'
+2	schlecht	ra´a	רעה	f.Sg.	נ'
+2	schlecht	ra´im	רעים	m.Pl.	ז"ר
+2	schlecht	ra´ot	רעות	f.Pl.	נ"ר

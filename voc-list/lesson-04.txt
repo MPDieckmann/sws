@@ -1,0 +1,43 @@
+4	aber	`awal	אבל		
+4	oder	`o	או		
+4	Universität	`uniwerßita	אוניברסיטה	f.Sg.	נ'
+4	Universitäten	`uniwerßitaot	אוניברסיטאות	f.Pl.	נ"ר
+4	im; in der	ba…	בַּ…		
+4	im Haus; zu Hause	babajit	בבית		
+4	Bier	bira	בירה	f.Sg.	נ'
+4	Biere	birot	בירות	f.Pl.	נ"ר
+4	Café; Kaffeehaus	bejt kafe	בית קפה	m.Sg.	ז'
+4	Cafés; Kaffeehäuser	batej kafe	בתי קפה	m.Pl.	ז"ר
+4	Gelobt sei Gott!; Gott sei Dank!	baruch haschem	ברוך השם!		
+4	der; die; das	ha…	הַ…		
+4	dieser; dieses	hase	הזה	m.Sg.	ז'
+4	diese	hasot	הזאת	f.Sg.	נ'
+4	diese	ha`ele	האלה	m.Pl.; f.Pl.	ז"ר; נ"ר
+4	hier ist	hine	הנה		
+4	Geschäft	chanut	חנות	f.Sg.	נ'
+4	Geschäft	chanujot	חנויות	f.Pl.	נ"ר
+4	Mond	jareach	ירח	m.Sg.	ז'
+4	Mond	jerachim	ירחים	m.Pl.	ז"ר
+4	soso	kacha kacha	ככה ככה		
+4	auf Wiedersehen	lehitraot	להתראות		
+4	Zitrone	limon	לימון	m.Sg.	ז'
+4	Zitronen	limonim	לימונים	m.Pl.	ז"ר
+4	woher	me`ajin	מאין		
+4	aus dem; aus der	meha…	מֵהַ…		
+4	super!	ßababa	סבבה!	ugs.	ס'
+4	Zucker	ßukar	סוכר	m.Sg.	ז'
+4	Supermarkt	ßupermarket	סופרמרקט	m.Sg.	ז'
+4	Salat	ßalat	סלט	m.Sg.	ז'
+4	Salate	ßalatim	סלטים	m.Pl.	ז"ר
+4	super!	´al hakefak	על הכיפק!	ugs.	ס'
+4	schlecht!; [wörtlich:] auf dem Gesicht	´al hapanim	על הפנים!	ugs.	ס'
+4	Kiosk	kijoßk	קיוסק	m.Sg.	ז'
+4	Kiosk	kijoßkim	קיוסקים	m.Pl.	ז"ר
+4	Kaffee	kafe	קפה	m.Sg.	ז'
+4	viele	raw	רב	m.Sg.	ז'
+4	viele	raba	רבה	f.Sg.	נ'
+4	viele	rabim	רבים	m.Pl.	ז"ר
+4	viele	rabot	רבות	f.Pl.	נ"ר
+4	von; gehört zu	schel	של	+ Gen.	+ Gen.
+4	Tee	te	תה	m.Sg.	ז'
+4	vielen Dank	toda raba	תודה רבה		
