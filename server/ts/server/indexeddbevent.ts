@@ -1,12 +1,15 @@
-class IndexedDBEvent<O extends PropertyKey, R, T extends keyof IndexedDBEventInitMap<O, R>> extends Event {
+/// <reference no-default-lib="true" />
+/// <reference path="index.ts" />
+
+class IndexedDBEvent<ObjectStoreName extends PropertyKey, Record, EventType extends keyof IndexedDBEventInitMap<ObjectStoreName, Record>> extends Event {
   [Symbol.toStringTag] = "IndexedDBEvent";
 
-  readonly function: T;
-  readonly arguments: IndexedDBEventInitMap<O, R>[T]["arguments"];
-  readonly result: IndexedDBEventInitMap<O, R>[T]["result"];
+  readonly function: EventType;
+  readonly arguments: IndexedDBEventInitMap<ObjectStoreName, Record>[EventType]["arguments"];
+  readonly result: IndexedDBEventInitMap<ObjectStoreName, Record>[EventType]["result"];
   readonly error: DOMException;
 
-  constructor(type: string, eventInitDict?: IndexedDBEventInit<O, R, T>) {
+  constructor(type: string, eventInitDict?: IndexedDBEventInit<ObjectStoreName, Record, EventType>) {
     super(type, eventInitDict);
 
     this.function = eventInitDict.function || null;
@@ -16,14 +19,14 @@ class IndexedDBEvent<O extends PropertyKey, R, T extends keyof IndexedDBEventIni
   }
 }
 
-interface IndexedDBEventInit<O extends PropertyKey, R, T extends keyof IndexedDBEventInitMap<O, R>> extends EventInit {
-  function?: T;
-  arguments?: IndexedDBEventInitMap<O, R>[T]["arguments"];
-  result?: IndexedDBEventInitMap<O, R>[T]["result"];
+interface IndexedDBEventInit<ObjectStoreName extends PropertyKey, Record, EventType extends keyof IndexedDBEventInitMap<ObjectStoreName, Record>> extends EventInit {
+  function?: EventType;
+  arguments?: IndexedDBEventInitMap<ObjectStoreName, Record>[EventType]["arguments"];
+  result?: IndexedDBEventInitMap<ObjectStoreName, Record>[EventType]["result"];
   error?: DOMException;
 }
 
-interface IndexedDBEventInitMap<O extends PropertyKey, R> {
+interface IndexedDBEventInitMap<ObjectStoreName extends PropertyKey, Record> {
   statechange: {
     arguments: null;
     result: number;
@@ -32,61 +35,46 @@ interface IndexedDBEventInitMap<O extends PropertyKey, R> {
     arguments: {
       name: string;
       version: number;
-      objectStoreDefinitions: IDBObjectStoreDefinition<O, string>[];
+      objectStoreDefinitions: { [K in ObjectStoreName]: IDBObjectStoreDefinition<K, string>; };
     };
     result: IDBDatabase;
   }
   add: {
     arguments: {
-      objectStoreName: O;
-      record: IndexedDBRecord<R>;
+      objectStoreName: ObjectStoreName;
+      record: IndexedDBRecord<Record>;
     };
     result: IDBValidKey;
   }
   put: {
     arguments: {
-      objectStoreName: O;
-      record: IndexedDBRecord<R>;
+      objectStoreName: ObjectStoreName;
+      record: IndexedDBRecord<Record>;
     };
     result: IDBValidKey;
   }
   get: {
     arguments: {
-      objectStoreName: O;
-      query: IndexedDBQuery<R>;
+      objectStoreName: ObjectStoreName;
+      callback: null | ((record: Record) => boolean | Promise<boolean>);
+      query: null | IndexedDBQuery<Record>;
     };
-    result: IndexedDBRecord<R>[];
-  }
-  getAll: {
-    arguments: {
-      objectStoreName: O;
-    };
-    result: IndexedDBRecord<R>[];
+    result: IndexedDBRecord<Record>[];
   }
   delete: {
     arguments: {
-      objectStoreName: O;
-      query: IndexedDBQuery<R>;
+      objectStoreName: ObjectStoreName;
+      callback: null | ((record: Record) => boolean | Promise<boolean>);
+      query: null | IndexedDBQuery<Record>;
     };
-    result: IndexedDBRecord<R>[];
+    result: null;
   }
   count: {
     arguments: {
-      objectStoreName: O;
+      objectStoreName: ObjectStoreName;
+      callback: null | ((record: Record) => boolean | Promise<boolean>);
+      query: null | IndexedDBQuery<Record>;
     };
     result: number;
-  }
-  clear: {
-    arguments: {
-      objectStoreName: O;
-    };
-    result: void[];
-  }
-  openCursor: {
-    arguments: {
-      objectStoreName: O;
-      cursorCallback: (record: IndexedDBRecord<R>) => boolean;
-    };
-    result: IndexedDBRecord<R>[];
   }
 }

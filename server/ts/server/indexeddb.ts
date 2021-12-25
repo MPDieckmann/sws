@@ -1,7 +1,7 @@
 /// <reference no-default-lib="true" />
 /// <reference path="index.ts" />
 
-class IndexedDB<M, I extends string> extends EventTarget {
+class IndexedDB<ObjectStoreDefinitionMap extends { [ObjectStoreName in string]: IDBDefinition<object, string> }> extends EventTarget {
   [Symbol.toStringTag] = "IndexedDB";
 
   static readonly STATE_CLOSED = 0;
@@ -17,21 +17,32 @@ class IndexedDB<M, I extends string> extends EventTarget {
   #state: number = this.STATE_CLOSED;
   #queue: (() => Promise<void> | void)[] = [];
   #ready: Promise<this>;
+  #name: string;
+  #version: number;
 
   get ready() {
     return this.#ready;
   }
-
   get state() {
     return this.#state;
   }
+  get name() {
+    return this.#name;
+  }
+  get version() {
+    return this.#version;
+  }
 
-  constructor(name: string, version: number, objectStoreDefinitions: IDBObjectStoreDefinition<keyof M, I>[]) {
+  constructor(name: string, version: number, objectStoreDefinitions: { [K in keyof ObjectStoreDefinitionMap]?: IDBObjectStoreDefinition<K, ObjectStoreDefinitionMap[K]["Indices"]> }) {
     super();
+
+    this.#name = name;
+    this.#version = version;
 
     this.#ready = new Promise((resolve, reject) => {
       let request = indexedDB.open(name, version);
       request.addEventListener("success", () => {
+        this.#version = request.result.version;
         this.#idb = request.result;
         this.dispatchEvent(new IndexedDBEvent("statechange", {
           cancelable: false,
@@ -40,19 +51,20 @@ class IndexedDB<M, I extends string> extends EventTarget {
           result: this.STATE_IDLE
         }));
         this.#state = this.STATE_IDLE;
-        this.dispatchEvent(new IndexedDBEvent<keyof M, M[keyof M], keyof IndexedDBEventInitMap<keyof M, M[keyof M]>>("success", {
+        this.dispatchEvent(new IndexedDBEvent<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap], keyof IndexedDBEventInitMap<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap]>>("success", {
           cancelable: false,
           function: "open",
           arguments: {
             name,
             version,
-            objectStoreDefinitions
+            objectStoreDefinitions: <{ [K in keyof ObjectStoreDefinitionMap]: IDBObjectStoreDefinition<K, ObjectStoreDefinitionMap[K]["Indices"]> }>objectStoreDefinitions
           },
           result: request.result
         }));
         resolve(this);
       });
       request.addEventListener("upgradeneeded", () => {
+        this.#version = request.result.version;
         this.dispatchEvent(new IndexedDBEvent("statechange", {
           cancelable: false,
           function: "statechange",
@@ -60,32 +72,33 @@ class IndexedDB<M, I extends string> extends EventTarget {
           result: this.STATE_UPGRADING
         }));
         this.#state = this.STATE_UPGRADING;
-        this.dispatchEvent(new IndexedDBEvent<keyof M, M[keyof M], keyof IndexedDBEventInitMap<keyof M, M[keyof M]>>("upgradeneeded", {
+        this.dispatchEvent(new IndexedDBEvent<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap], keyof IndexedDBEventInitMap<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap]>>("upgradeneeded", {
           cancelable: false,
           function: "open",
           arguments: {
             name,
             version,
-            objectStoreDefinitions
+            objectStoreDefinitions: <{ [K in keyof ObjectStoreDefinitionMap]: IDBObjectStoreDefinition<K, ObjectStoreDefinitionMap[K]["Indices"]> }>objectStoreDefinitions
           },
           result: request.result
         }));
 
-        objectStoreDefinitions.forEach(objectStoreDefinition => {
-          let objectStore = request.result.createObjectStore(<string>objectStoreDefinition.name, objectStoreDefinition);
+        Object.keys(objectStoreDefinitions).forEach(objectStoreName => {
+          let objectStoreDefinition = objectStoreDefinitions[objectStoreName];
+          let objectStore = request.result.createObjectStore(objectStoreDefinition.name, objectStoreDefinition);
           objectStoreDefinition.indices.forEach(index => {
             objectStore.createIndex(index.name, index.keyPath, index);
           });
         });
       });
       request.addEventListener("error", () => {
-        this.dispatchEvent(new IndexedDBEvent<keyof M, M[keyof M], keyof IndexedDBEventInitMap<keyof M, M[keyof M]>>("error", {
+        this.dispatchEvent(new IndexedDBEvent<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap], keyof IndexedDBEventInitMap<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap]>>("error", {
           cancelable: false,
           function: "open",
           arguments: {
             name,
             version,
-            objectStoreDefinitions
+            objectStoreDefinitions: <{ [K in keyof ObjectStoreDefinitionMap]: IDBObjectStoreDefinition<K, ObjectStoreDefinitionMap[K]["Indices"]> }>objectStoreDefinitions
           },
           error: request.error
         }));
@@ -99,13 +112,13 @@ class IndexedDB<M, I extends string> extends EventTarget {
         reject(request.error);
       });
       request.addEventListener("blocked", () => {
-        this.dispatchEvent(new IndexedDBEvent<keyof M, M[keyof M], keyof IndexedDBEventInitMap<keyof M, M[keyof M]>>("blocked", {
+        this.dispatchEvent(new IndexedDBEvent<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap], keyof IndexedDBEventInitMap<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap]>>("blocked", {
           cancelable: false,
           function: "open",
           arguments: {
             name,
             version,
-            objectStoreDefinitions
+            objectStoreDefinitions: <{ [K in keyof ObjectStoreDefinitionMap]: IDBObjectStoreDefinition<K, ObjectStoreDefinitionMap[K]["Indices"]> }>objectStoreDefinitions
           },
           error: request.error
         }));
@@ -150,24 +163,24 @@ class IndexedDB<M, I extends string> extends EventTarget {
     }
   }
 
-  #add<O extends keyof M>(objectStoreName: O, record: IndexedDBRecord<M[O]>): Promise<IDBValidKey> {
+  #add<ObjectStoreName extends keyof ObjectStoreDefinitionMap>(objectStoreName: ObjectStoreName, record: IndexedDBRecord<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]>): Promise<IDBValidKey> {
     return new Promise(async (resolve, reject) => {
       await this.#ready;
       let request = this.#idb.transaction([<string>objectStoreName], "readwrite").objectStore(<string>objectStoreName).add(record);
       request.addEventListener("success", () => {
-        this.dispatchEvent(new IndexedDBEvent<keyof M, M[O], keyof IndexedDBEventInitMap<keyof M, M[keyof M]>>("success", {
+        this.dispatchEvent(new IndexedDBEvent<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[ObjectStoreName]["Records"], keyof IndexedDBEventInitMap<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap]>>("success", {
           cancelable: false,
           function: "add",
           arguments: {
             objectStoreName,
-            record
+            record,
           },
           result: request.result
         }));
         resolve(request.result);
       });
       request.addEventListener("error", () => {
-        this.dispatchEvent(new IndexedDBEvent<keyof M, M[O], keyof IndexedDBEventInitMap<keyof M, M[keyof M]>>("error", {
+        this.dispatchEvent(new IndexedDBEvent<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[ObjectStoreName]["Records"], keyof IndexedDBEventInitMap<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap]>>("error", {
           cancelable: false,
           function: "add",
           arguments: {
@@ -180,13 +193,12 @@ class IndexedDB<M, I extends string> extends EventTarget {
       });
     });
   }
-
-  #put<O extends keyof M>(objectStoreName: O, record: IndexedDBRecord<M[O]>): Promise<IDBValidKey> {
+  #put<ObjectStoreName extends keyof ObjectStoreDefinitionMap>(objectStoreName: ObjectStoreName, record: IndexedDBRecord<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]>): Promise<IDBValidKey> {
     return new Promise(async (resolve, reject) => {
       await this.#ready;
       let request = this.#idb.transaction([<string>objectStoreName], "readwrite").objectStore(<string>objectStoreName).put(record);
       request.addEventListener("success", () => {
-        this.dispatchEvent(new IndexedDBEvent<keyof M, M[O], keyof IndexedDBEventInitMap<keyof M, M[keyof M]>>("success", {
+        this.dispatchEvent(new IndexedDBEvent<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[ObjectStoreName]["Records"], keyof IndexedDBEventInitMap<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap]>>("success", {
           cancelable: false,
           function: "put",
           arguments: {
@@ -198,7 +210,7 @@ class IndexedDB<M, I extends string> extends EventTarget {
         resolve(request.result);
       });
       request.addEventListener("error", () => {
-        this.dispatchEvent(new IndexedDBEvent<keyof M, M[O], keyof IndexedDBEventInitMap<keyof M, M[keyof M]>>("error", {
+        this.dispatchEvent(new IndexedDBEvent<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[ObjectStoreName]["Records"], keyof IndexedDBEventInitMap<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap]>>("error", {
           cancelable: false,
           function: "put",
           arguments: {
@@ -212,108 +224,67 @@ class IndexedDB<M, I extends string> extends EventTarget {
     });
   }
 
-  #get<O extends keyof M>(objectStoreName: O, query: IndexedDBQuery<M[O]>): Promise<IndexedDBRecord<M[O]>[]> {
-    return new Promise(async (resolve, reject) => {
-      await this.#ready;
-      let request = this.#idb.transaction([<string>objectStoreName], "readwrite").objectStore(<string>objectStoreName).openCursor();
-      let results: IndexedDBRecord<M[O]>[] = [];
-      request.addEventListener("success", () => {
-        let cursor = request.result;
-        if (cursor) {
-          if (this.#record_matches_query(cursor.value, query)) {
-            results.push(cursor.value);
-          }
-          cursor.continue();
-        } else {
-          this.dispatchEvent(new IndexedDBEvent<keyof M, M[O], keyof IndexedDBEventInitMap<keyof M, M[keyof M]>>("success", {
-            cancelable: false,
-            function: "get",
-            arguments: {
-              objectStoreName,
-              query
-            },
-            result: results
-          }));
-          resolve(results);
-        }
-      });
-      request.addEventListener("error", () => {
-        this.dispatchEvent(new IndexedDBEvent<keyof M, M[O], keyof IndexedDBEventInitMap<keyof M, M[keyof M]>>("error", {
-          cancelable: false,
-          function: "get",
-          arguments: {
-            objectStoreName,
-            query
-          },
-          error: request.error
-        }));
-        reject(request.error);
-      });
+  #get<ObjectStoreName extends keyof ObjectStoreDefinitionMap>(objectStoreName: ObjectStoreName, query: IndexedDBQuery<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]> | ((record: IndexedDBRecord<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]>) => boolean | Promise<boolean>)): Promise<IndexedDBRecord<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]>[]> {
+    let results: IndexedDBRecord<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]>[] = [];
+    return this.#cursor(objectStoreName, "readonly", typeof query == "function" ? async cursor => {
+      if (await query(cursor.value)) {
+        results.push(cursor.value);
+      }
+    } : cursor => {
+      if (this.#record_matches_query(cursor.value, query)) {
+        results.push(cursor.value);
+      }
+    }).then(() => {
+      this.dispatchEvent(new IndexedDBEvent<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[ObjectStoreName]["Records"], keyof IndexedDBEventInitMap<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap]>>("success", {
+        cancelable: false,
+        function: "get",
+        arguments: {
+          objectStoreName,
+          callback: typeof query == "function" ? query : null,
+          query: typeof query == "function" ? null : query
+        },
+        result: results
+      }));
+      return results
+    }, reason => {
+      this.dispatchEvent(new IndexedDBEvent<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[ObjectStoreName]["Records"], keyof IndexedDBEventInitMap<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap]>>("error", {
+        cancelable: false,
+        function: "get",
+        arguments: {
+          objectStoreName,
+          callback: typeof query == "function" ? query : null,
+          query: typeof query == "function" ? null : query
+        },
+        error: reason
+      }));
+      throw reason;
     });
   }
-
-  #getAll<O extends keyof M>(objectStoreName: O): Promise<IndexedDBRecord<M[O]>[]> {
+  #getAll<ObjectStoreName extends keyof ObjectStoreDefinitionMap>(objectStoreName: ObjectStoreName): Promise<IndexedDBRecord<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]>[]> {
     return new Promise(async (resolve, reject) => {
       await this.#ready;
       let request = this.#idb.transaction([<string>objectStoreName], "readonly").objectStore(<string>objectStoreName).getAll();
       request.addEventListener("success", () => {
-        this.dispatchEvent(new IndexedDBEvent<keyof M, M[O], keyof IndexedDBEventInitMap<keyof M, M[keyof M]>>("success", {
+        this.dispatchEvent(new IndexedDBEvent<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[ObjectStoreName]["Records"], keyof IndexedDBEventInitMap<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap]>>("success", {
           cancelable: false,
-          function: "getAll",
+          function: "get",
           arguments: {
-            objectStoreName
+            objectStoreName,
+            callback: null,
+            query: null
           },
           result: request.result
         }));
         resolve(request.result);
       });
       request.addEventListener("error", () => {
-        this.dispatchEvent(new IndexedDBEvent<keyof M, M[O], keyof IndexedDBEventInitMap<keyof M, M[keyof M]>>("error", {
+        this.dispatchEvent(new IndexedDBEvent<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[ObjectStoreName]["Records"], keyof IndexedDBEventInitMap<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap]>>("error", {
           cancelable: false,
-          function: "getAll",
-          arguments: {
-            objectStoreName
-          },
-          error: request.error
-        }));
-        reject(request.error);
-      });
-    });
-  }
-
-  #delete<O extends keyof M>(objectStoreName: O, query: IndexedDBQuery<M[O]>): Promise<IndexedDBRecord<M[O]>[]> {
-    return new Promise(async (resolve, reject) => {
-      await this.#ready;
-      let request = this.#idb.transaction([<string>objectStoreName], "readwrite").objectStore(<string>objectStoreName).openCursor();
-      let results: IndexedDBRecord<M[O]>[] = [];
-      request.addEventListener("success", () => {
-        let cursor = request.result;
-        if (cursor) {
-          if (this.#record_matches_query(cursor.value, query)) {
-            results.push(cursor.value);
-            cursor.delete();
-          }
-          cursor.continue();
-        } else {
-          this.dispatchEvent(new IndexedDBEvent<keyof M, M[O], keyof IndexedDBEventInitMap<keyof M, M[keyof M]>>("success", {
-            cancelable: false,
-            function: "delete",
-            arguments: {
-              objectStoreName,
-              query
-            },
-            result: results
-          }));
-          resolve(results);
-        }
-      });
-      request.addEventListener("error", () => {
-        this.dispatchEvent(new IndexedDBEvent<keyof M, M[O], keyof IndexedDBEventInitMap<keyof M, M[keyof M]>>("error", {
-          cancelable: false,
-          function: "delete",
+          function: "get",
           arguments: {
             objectStoreName,
-            query
+            callback: null,
+            query: null
           },
           error: request.error
         }));
@@ -322,27 +293,67 @@ class IndexedDB<M, I extends string> extends EventTarget {
     });
   }
 
-  #count<O extends keyof M>(objectStoreName: O): Promise<number> {
+  #count<ObjectStoreName extends keyof ObjectStoreDefinitionMap>(objectStoreName: ObjectStoreName, query: IndexedDBQuery<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]> | ((record: IndexedDBRecord<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]>) => boolean | Promise<boolean>)): Promise<number> {
+    let results = 0;
+    return this.#cursor(objectStoreName, "readonly", typeof query == "function" ? async cursor => {
+      if (await query(cursor.value)) {
+        results++;
+      }
+    } : cursor => {
+      if (this.#record_matches_query(cursor.value, query)) {
+        results++;
+      }
+    }).then(() => {
+      this.dispatchEvent(new IndexedDBEvent<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[ObjectStoreName]["Records"], keyof IndexedDBEventInitMap<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap]>>("success", {
+        cancelable: false,
+        function: "count",
+        arguments: {
+          objectStoreName,
+          callback: typeof query == "function" ? query : null,
+          query: typeof query == "function" ? null : query
+        },
+        result: results
+      }));
+      return results
+    }, reason => {
+      this.dispatchEvent(new IndexedDBEvent<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[ObjectStoreName]["Records"], keyof IndexedDBEventInitMap<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap]>>("error", {
+        cancelable: false,
+        function: "count",
+        arguments: {
+          objectStoreName,
+          callback: typeof query == "function" ? query : null,
+          query: typeof query == "function" ? null : query
+        },
+        error: reason
+      }));
+      throw reason;
+    });
+  }
+  #countAll<ObjectStoreName extends keyof ObjectStoreDefinitionMap>(objectStoreName: ObjectStoreName): Promise<number> {
     return new Promise(async (resolve, reject) => {
       await this.#ready;
       let request = this.#idb.transaction([<string>objectStoreName]).objectStore(<string>objectStoreName).count();
       request.addEventListener("success", () => {
-        this.dispatchEvent(new IndexedDBEvent<keyof M, M[O], keyof IndexedDBEventInitMap<keyof M, M[keyof M]>>("success", {
+        this.dispatchEvent(new IndexedDBEvent<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[ObjectStoreName]["Records"], keyof IndexedDBEventInitMap<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap]>>("success", {
           cancelable: false,
           function: "count",
           arguments: {
-            objectStoreName
+            objectStoreName,
+            callback: null,
+            query: null
           },
           result: request.result
         }));
         resolve(request.result);
       });
       request.addEventListener("error", () => {
-        this.dispatchEvent(new IndexedDBEvent<keyof M, M[O], keyof IndexedDBEventInitMap<keyof M, M[keyof M]>>("error", {
+        this.dispatchEvent(new IndexedDBEvent<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[ObjectStoreName]["Records"], keyof IndexedDBEventInitMap<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap]>>("error", {
           cancelable: false,
           function: "count",
           arguments: {
-            objectStoreName
+            objectStoreName,
+            callback: null,
+            query: null
           },
           error: request.error
         }));
@@ -351,27 +362,78 @@ class IndexedDB<M, I extends string> extends EventTarget {
     });
   }
 
-  #clear<O extends keyof M>(objectStoreName: O): Promise<void> {
+  #delete<ObjectStoreName extends keyof ObjectStoreDefinitionMap>(objectStoreName: ObjectStoreName, query: IndexedDBQuery<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]> | ((record: IndexedDBRecord<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]>) => boolean | Promise<boolean>)): Promise<void> {
+    return this.#cursor(objectStoreName, "readwrite", typeof query == "function" ? async cursor => {
+      if (await query(cursor.value)) {
+        await new Promise<void>((resolve, reject) => {
+          let request = cursor.delete();
+          request.addEventListener("success", () => {
+            resolve();
+          });
+          request.addEventListener("error", () => reject(request.error));
+        });
+      }
+    } : async cursor => {
+      if (this.#record_matches_query(cursor.value, query)) {
+        await new Promise<void>((resolve, reject) => {
+          let request = cursor.delete();
+          request.addEventListener("success", () => {
+            resolve();
+          });
+          request.addEventListener("error", () => reject(request.error));
+        });
+      }
+    }).then(() => {
+      this.dispatchEvent(new IndexedDBEvent<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[ObjectStoreName]["Records"], keyof IndexedDBEventInitMap<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap]>>("success", {
+        cancelable: false,
+        function: "delete",
+        arguments: {
+          objectStoreName,
+          callback: typeof query == "function" ? query : null,
+          query: typeof query == "function" ? null : query
+        },
+        result: null
+      }));
+      return null;
+    }, reason => {
+      this.dispatchEvent(new IndexedDBEvent<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[ObjectStoreName]["Records"], keyof IndexedDBEventInitMap<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap]>>("error", {
+        cancelable: false,
+        function: "delete",
+        arguments: {
+          objectStoreName,
+          callback: typeof query == "function" ? query : null,
+          query: typeof query == "function" ? null : query
+        },
+        error: reason
+      }));
+      throw reason;
+    });
+  }
+  #deleteAll<ObjectStoreName extends keyof ObjectStoreDefinitionMap>(objectStoreName: ObjectStoreName): Promise<void> {
     return new Promise(async (resolve, reject) => {
       await this.#ready;
       let request = this.#idb.transaction([<string>objectStoreName], "readwrite").objectStore(<string>objectStoreName).clear();
       request.addEventListener("success", () => {
-        this.dispatchEvent(new IndexedDBEvent<keyof M, M[O], keyof IndexedDBEventInitMap<keyof M, M[keyof M]>>("success", {
+        this.dispatchEvent(new IndexedDBEvent<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[ObjectStoreName]["Records"], keyof IndexedDBEventInitMap<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap]>>("success", {
           cancelable: false,
-          function: "clear",
+          function: "delete",
           arguments: {
-            objectStoreName
+            objectStoreName,
+            callback: null,
+            query: null
           },
           result: request.result
         }));
         resolve(request.result);
       });
       request.addEventListener("error", () => {
-        this.dispatchEvent(new IndexedDBEvent<keyof M, M[O], keyof IndexedDBEventInitMap<keyof M, M[keyof M]>>("error", {
+        this.dispatchEvent(new IndexedDBEvent<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[ObjectStoreName]["Records"], keyof IndexedDBEventInitMap<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap]>>("error", {
           cancelable: false,
-          function: "clear",
+          function: "delete",
           arguments: {
-            objectStoreName
+            objectStoreName,
+            callback: null,
+            query: null
           },
           error: request.error
         }));
@@ -380,47 +442,26 @@ class IndexedDB<M, I extends string> extends EventTarget {
     });
   }
 
-  #openCursor<O extends keyof M>(objectStoreName: O, cursorCallback: (record: M[O]) => boolean): Promise<IndexedDBRecord<M[O]>[]> {
+  #cursor<ObjectStoreName extends keyof ObjectStoreDefinitionMap>(objectStoreName: ObjectStoreName, mode: IDBTransactionMode, callback: (cursor: IDBCursorWithValue) => void | Promise<void>): Promise<void> {
     return new Promise(async (resolve, reject) => {
       await this.#ready;
-      let request = this.#idb.transaction([<string>objectStoreName], "readwrite").objectStore(<string>objectStoreName).openCursor();
-      let results: IndexedDBRecord<M[O]>[] = [];
-      request.addEventListener("success", () => {
+      let request = this.#idb.transaction([<string>objectStoreName], mode).objectStore(<string>objectStoreName).openCursor();
+      request.addEventListener("success", async () => {
         let cursor = request.result;
         if (cursor) {
-          if (cursorCallback(cursor.value)) {
-            results.push(cursor.value);
-          }
+          await callback(cursor);
           cursor.continue();
         } else {
-          this.dispatchEvent(new IndexedDBEvent<keyof M, M[O], keyof IndexedDBEventInitMap<keyof M, M[keyof M]>>("success", {
-            cancelable: false,
-            function: "openCursor",
-            arguments: {
-              objectStoreName,
-              cursorCallback
-            },
-            result: results
-          }));
-          resolve(results);
+          resolve();
         }
       });
       request.addEventListener("error", () => {
-        this.dispatchEvent(new IndexedDBEvent<keyof M, M[O], keyof IndexedDBEventInitMap<keyof M, M[keyof M]>>("error", {
-          cancelable: false,
-          function: "openCursor",
-          arguments: {
-            objectStoreName,
-            cursorCallback
-          },
-          error: request.error
-        }));
         reject(request.error);
       });
     });
   }
 
-  #record_matches_query<O extends keyof M>(record: IndexedDBRecord<M[O]>, query: IndexedDBQuery<M[O]>): boolean {
+  #record_matches_query<ObjectStoreName extends keyof ObjectStoreDefinitionMap>(record: IndexedDBRecord<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]>, query: IndexedDBQuery<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]>): boolean {
     if (query) {
       let property: string;
       for (property in query) {
@@ -450,71 +491,80 @@ class IndexedDB<M, I extends string> extends EventTarget {
     return true;
   }
 
-  add<O extends keyof M>(objectStoreName: O, record: IndexedDBRecord<M[O]>): Promise<IDBValidKey> {
+  add<ObjectStoreName extends keyof ObjectStoreDefinitionMap>(objectStoreName: ObjectStoreName, record: IndexedDBRecord<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]>): Promise<IDBValidKey> {
     return new Promise((resolve, reject) => {
       this.#queue.push(() => this.#add(objectStoreName, record).then(resolve, reject));
       this.#dequeue();
     });
   }
 
-  put<O extends keyof M>(objectStoreName: O, record: IndexedDBRecord<M[O]>): Promise<IDBValidKey> {
+  put<ObjectStoreName extends keyof ObjectStoreDefinitionMap>(objectStoreName: ObjectStoreName, record: IndexedDBRecord<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]>): Promise<IDBValidKey> {
     return new Promise((resolve, reject) => {
       this.#queue.push(() => this.#put(objectStoreName, record).then(resolve, reject));
       this.#dequeue();
     });
   }
 
-  get<O extends keyof M>(objectStoreName: O, query: IndexedDBQuery<M[O]>): Promise<IndexedDBRecord<M[O]>[]> {
+  /** Gets all items */
+  get<ObjectStoreName extends keyof ObjectStoreDefinitionMap>(objectStoreName: ObjectStoreName): Promise<IndexedDBRecord<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]>[]>;
+  /** Gets all items matching the query */
+  get<ObjectStoreName extends keyof ObjectStoreDefinitionMap>(objectStoreName: ObjectStoreName, query: IndexedDBQuery<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]>): Promise<IndexedDBRecord<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]>[]>;
+  /** Gets every item for which `true` is returned by the callback  */
+  get<ObjectStoreName extends keyof ObjectStoreDefinitionMap>(objectStoreName: ObjectStoreName, callback: (record: IndexedDBRecord<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]>) => boolean | Promise<boolean>): Promise<IndexedDBRecord<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]>[]>;
+  get<ObjectStoreName extends keyof ObjectStoreDefinitionMap>(objectStoreName: ObjectStoreName, query: IndexedDBQuery<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]> | ((record: IndexedDBRecord<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]>) => boolean | Promise<boolean>) = null): Promise<IndexedDBRecord<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]>[]> {
     return new Promise((resolve, reject) => {
-      this.#queue.push(() => this.#get(objectStoreName, query).then(resolve, reject));
+      if (query) {
+        this.#queue.push(() => this.#get(objectStoreName, query).then(resolve, reject));
+      } else {
+        this.#queue.push(() => this.#getAll(objectStoreName).then(resolve, reject));
+      }
       this.#dequeue();
     });
   }
 
-  getAll<O extends keyof M>(objectStoreName: O): Promise<IndexedDBRecord<M[O]>[]> {
+  /** Deletes all items */
+  delete<ObjectStoreName extends keyof ObjectStoreDefinitionMap>(objectStoreName: ObjectStoreName): Promise<void>;
+  /** Deletes all items matching the query */
+  delete<ObjectStoreName extends keyof ObjectStoreDefinitionMap>(objectStoreName: ObjectStoreName, query: IndexedDBQuery<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]>): Promise<void>;
+  /** Deletes every item for which `true` is returned by the callback  */
+  delete<ObjectStoreName extends keyof ObjectStoreDefinitionMap>(objectStoreName: ObjectStoreName, callback: (record: IndexedDBRecord<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]>) => boolean | Promise<boolean>): Promise<void>;
+  delete<ObjectStoreName extends keyof ObjectStoreDefinitionMap>(objectStoreName: ObjectStoreName, query: IndexedDBQuery<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]> | ((record: IndexedDBRecord<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]>) => boolean | Promise<boolean>) = null): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.#queue.push(() => this.#getAll(objectStoreName).then(resolve, reject));
+      if (query) {
+        this.#queue.push(() => this.#delete(objectStoreName, query).then(resolve, reject));
+      } else {
+        this.#queue.push(() => this.#deleteAll(objectStoreName).then(resolve, reject));
+      }
       this.#dequeue();
     });
   }
 
-  delete<O extends keyof M>(objectStoreName: O, query: IndexedDBQuery<M[O]>): Promise<IndexedDBRecord<M[O]>[]> {
+  /** Counts all items */
+  count<ObjectStoreName extends keyof ObjectStoreDefinitionMap>(objectStoreName: ObjectStoreName): Promise<number>;
+  /** Counts all items matching the query */
+  count<ObjectStoreName extends keyof ObjectStoreDefinitionMap>(objectStoreName: ObjectStoreName, query: IndexedDBQuery<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]>): Promise<number>;
+  /** Counts every item for which `true` is returned by the callback  */
+  count<ObjectStoreName extends keyof ObjectStoreDefinitionMap>(objectStoreName: ObjectStoreName, callback: (record: IndexedDBRecord<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]>) => boolean | Promise<boolean>): Promise<number>;
+  count<ObjectStoreName extends keyof ObjectStoreDefinitionMap>(objectStoreName: ObjectStoreName, query: IndexedDBQuery<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]> | ((record: IndexedDBRecord<ObjectStoreDefinitionMap[ObjectStoreName]["Records"]>) => boolean | Promise<boolean>) = null): Promise<number> {
     return new Promise((resolve, reject) => {
-      this.#queue.push(() => this.#delete(objectStoreName, query).then(resolve, reject));
+      if (query) {
+        this.#queue.push(() => this.#count(objectStoreName, query).then(resolve, reject));
+      } else {
+        this.#queue.push(() => this.#countAll(objectStoreName).then(resolve, reject));
+      }
       this.#dequeue();
     });
   }
 
-  count<O extends keyof M>(objectStoreName: O): Promise<number> {
-    return new Promise((resolve, reject) => {
-      this.#queue.push(() => this.#count(objectStoreName).then(resolve, reject));
-      this.#dequeue();
-    });
+  index<ObjectStoreName extends keyof ObjectStoreDefinitionMap>(objectStoreName: ObjectStoreName, index: ObjectStoreDefinitionMap[ObjectStoreName]["Indices"], mode: IDBTransactionMode = "readonly"): IndexedDBIndex<ObjectStoreName, ObjectStoreDefinitionMap[ObjectStoreName]["Records"]> {
+    return new IndexedDBIndex(this.#idb.transaction([<string>objectStoreName], mode).objectStore(<string>objectStoreName).index(index));
   }
 
-  clear<O extends keyof M>(objectStoreName: O): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.#queue.push(() => this.#clear(objectStoreName).then(resolve, reject));
-      this.#dequeue();
-    });
-  }
-
-  openCursor<O extends keyof M>(objectStoreName: O, cursorCallback: (record: M[O]) => boolean): Promise<IndexedDBRecord<M[O]>[]> {
-    return new Promise((resolve, reject) => {
-      this.#queue.push(() => this.#openCursor(objectStoreName, cursorCallback).then(resolve, reject));
-      this.#dequeue();
-    });
-  }
-
-  index<O extends keyof M>(objectStoreName: O, index: I): IndexedDBIndex<O, M[O]> {
-    return new IndexedDBIndex(this.#idb.transaction([<string>objectStoreName], "readonly").objectStore(<string>objectStoreName).index(index));
-  }
-
-  #staticEvents: Map<keyof IndexedDBEventMap<M>, (this: IndexedDB<M, I>, ev: IndexedDBEventMap<M>[keyof IndexedDBEventMap<M>]) => any> = new Map();
+  #staticEvents: Map<keyof IndexedDBEventMap<ObjectStoreDefinitionMap>, (this: IndexedDB<ObjectStoreDefinitionMap>, event: IndexedDBEventMap<ObjectStoreDefinitionMap>[keyof IndexedDBEventMap<ObjectStoreDefinitionMap>]) => any> = new Map();
   get onsuccess() {
     return this.#staticEvents.get("success") || null;
   }
-  set onsuccess(value: (this: IndexedDB<M, I>, ev: IndexedDBEventMap<M>["success"]) => any) {
+  set onsuccess(value: (this: IndexedDB<ObjectStoreDefinitionMap>, event: IndexedDBEventMap<ObjectStoreDefinitionMap>["success"]) => any) {
     if (this.#staticEvents.has("success")) {
       this.removeEventListener("success", <EventListener>this.#staticEvents.get("success"));
     }
@@ -528,7 +578,7 @@ class IndexedDB<M, I extends string> extends EventTarget {
   get onerror() {
     return this.#staticEvents.get("error") || null;
   }
-  set onerror(value: (this: IndexedDB<M, I>, ev: IndexedDBEventMap<M>["error"]) => any) {
+  set onerror(value: (this: IndexedDB<ObjectStoreDefinitionMap>, event: IndexedDBEventMap<ObjectStoreDefinitionMap>["error"]) => any) {
     if (this.#staticEvents.has("error")) {
       this.removeEventListener("error", <EventListener>this.#staticEvents.get("error"));
     }
@@ -542,7 +592,7 @@ class IndexedDB<M, I extends string> extends EventTarget {
   get onblocked() {
     return this.#staticEvents.get("blocked") || null;
   }
-  set onblocked(value: (this: IndexedDB<M, I>, ev: IndexedDBEventMap<M>["blocked"]) => any) {
+  set onblocked(value: (this: IndexedDB<ObjectStoreDefinitionMap>, event: IndexedDBEventMap<ObjectStoreDefinitionMap>["blocked"]) => any) {
     if (this.#staticEvents.has("blocked")) {
       this.removeEventListener("blocked", <EventListener>this.#staticEvents.get("blocked"));
     }
@@ -556,7 +606,7 @@ class IndexedDB<M, I extends string> extends EventTarget {
   get onstatechange() {
     return this.#staticEvents.get("statechange") || null;
   }
-  set onstatechange(value: (this: IndexedDB<M, I>, ev: IndexedDBEventMap<M>["statechange"]) => any) {
+  set onstatechange(value: (this: IndexedDB<ObjectStoreDefinitionMap>, event: IndexedDBEventMap<ObjectStoreDefinitionMap>["statechange"]) => any) {
     if (this.#staticEvents.has("statechange")) {
       this.removeEventListener("statechange", <EventListener>this.#staticEvents.get("statechange"));
     }
@@ -569,32 +619,37 @@ class IndexedDB<M, I extends string> extends EventTarget {
   }
 }
 
-interface IndexedDB<M, I> {
-  addEventListener<K extends keyof IndexedDBEventMap<M>>(type: K, listener: (this: IndexedDB<M, I>, ev: IndexedDBEventMap<M>[K]) => any, options?: boolean | AddEventListenerOptions): void;
+interface IndexedDB<ObjectStoreDefinitionMap> {
+  addEventListener<K extends keyof IndexedDBEventMap<ObjectStoreDefinitionMap>>(type: K, listener: (this: IndexedDB<ObjectStoreDefinitionMap>, event: IndexedDBEventMap<ObjectStoreDefinitionMap>[K]) => any, options?: boolean | AddEventListenerOptions): void;
   addEventListener(type: string, callback: EventListenerOrEventListenerObject | null, options?: AddEventListenerOptions | boolean): void;
 }
 
-interface IndexedDBEventMap<M> {
-  success: IndexedDBEvent<keyof M, M[keyof M], keyof IndexedDBEventInitMap<keyof M, M[keyof M]>>;
-  error: IndexedDBEvent<keyof M, M[keyof M], keyof IndexedDBEventInitMap<keyof M, M[keyof M]>>;
-  blocked: IndexedDBEvent<keyof M, M[keyof M], keyof IndexedDBEventInitMap<keyof M, M[keyof M]>>;
-  statechange: IndexedDBEvent<keyof M, M[keyof M], keyof IndexedDBEventInitMap<keyof M, M[keyof M]>>;
+interface IndexedDBEventMap<ObjectStoreDefinitionMap> {
+  success: IndexedDBEvent<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap], keyof IndexedDBEventInitMap<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap]>>;
+  error: IndexedDBEvent<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap], keyof IndexedDBEventInitMap<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap]>>;
+  blocked: IndexedDBEvent<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap], keyof IndexedDBEventInitMap<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap]>>;
+  statechange: IndexedDBEvent<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap], keyof IndexedDBEventInitMap<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap]>>;
 }
 
-interface IDBObjectStoreDefinition<O extends PropertyKey, I> {
-  name: O;
+interface IDBDefinition<Record, IndexName extends string> {
+  Records: Record;
+  Indices: IndexName;
+}
+
+interface IDBObjectStoreDefinition<ObjectStoreName extends PropertyKey, IndexName extends string> {
+  name: ObjectStoreName;
   autoIncrement: boolean;
   keyPath: string;
-  indices: IDBIndexConfiguration<I>[];
+  indices: IDBIndexConfiguration<IndexName>[];
 }
 
-interface IDBIndexConfiguration<I> {
-  name: I;
+interface IDBIndexConfiguration<IndexName extends string> {
+  name: IndexName;
   keyPath: string;
   multiEntry: boolean;
   unique: boolean;
 }
 
-type IndexedDBQuery<R> = { [K in keyof R]?: R[K] | [string | number, string | number] | string | number | RegExp; }
+type IndexedDBQuery<Record> = { [K in keyof Record]?: Record[K] | [string | number, string | number] | string | number | RegExp; }
 
-type IndexedDBRecord<R> = { [K in keyof R]: R[K]; }
+type IndexedDBRecord<Record> = Record;

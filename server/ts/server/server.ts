@@ -40,21 +40,30 @@ class Server extends EventTarget {
   #settings: Map<keyof ServerSettingsMap, ServerSettingsMap[keyof ServerSettingsMap]> = new Map();
   #start: Promise<null> & { resolve(value: null): void; };
   #idb = new IndexedDB<{
-    settings: { key: keyof ServerSettingsMap, value: ServerSettingsMap[keyof ServerSettingsMap]; },
-    log: { type: string, message: string, stack: string, timestamp: number }
-  }, "by_type">("Server", 1, [{
-    name: "settings",
-    autoIncrement: false,
-    keyPath: "key",
-    indices: []
-  }, {
-    name: "log",
-    autoIncrement: true,
-    keyPath: "id",
-    indices: [
-      { name: "by_type", keyPath: "type", multiEntry: false, unique: false }
-    ]
-  }]);
+    settings: {
+      Records: { key: keyof ServerSettingsMap, value: ServerSettingsMap[keyof ServerSettingsMap]; };
+      Indices: "";
+    }
+    log: {
+      Records: { type: string, message: string, stack: string, timestamp: number };
+      Indices: "by_type";
+    }
+  }>("Server", 1, {
+    settings: {
+      name: "settings",
+      autoIncrement: false,
+      keyPath: "key",
+      indices: []
+    },
+    log: {
+      name: "log",
+      autoIncrement: true,
+      keyPath: "id",
+      indices: [
+        { name: "by_type", keyPath: "type", multiEntry: false, unique: false }
+      ]
+    }
+  });
 
   get version() { return this.#VERSION; }
   get pinging() { return this.#pinging; }
@@ -106,7 +115,7 @@ class Server extends EventTarget {
       return this;
     })();
 
-    this.#idb.getAll("settings").then(values => {
+    this.#idb.get("settings").then(values => {
       values.forEach(record => {
         this.#settings.set(record.key, record.value);
       });
@@ -135,7 +144,7 @@ class Server extends EventTarget {
     await this.#log("error", message, stack);
   }
   async clear_log(): Promise<void> {
-    await this.#idb.clear("log");
+    await this.#idb.delete("log");
     this.#log("clear", "Das Protokoll wurde erfolgreich gelöscht", null);
     console.clear();
   }
@@ -154,7 +163,7 @@ class Server extends EventTarget {
       timestamp: number;
     }[]> {
     if (types.log && types.warn && types.error) {
-      return this.#idb.getAll("log");
+      return this.#idb.get("log");
     } else {
       let type_array = [];
       types.log && type_array.push("log");

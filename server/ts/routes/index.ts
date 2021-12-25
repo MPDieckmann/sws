@@ -23,7 +23,11 @@ server.registerRoute(Server.APP_SCOPE + "/", {
 
     return await this.build({
       page_title: "Startseite",
-      main: `<a href="/train">Trainieren</a>`,
+      main: `<ul>
+  <li><a href="/train">Trainieren</a></li>
+  <li><a href="/debug">Debug</a></li>
+  <li><a href="/list">Liste</a></li>
+</ul>`,
     }, await this.files["layout.html"].text());
   }
 });

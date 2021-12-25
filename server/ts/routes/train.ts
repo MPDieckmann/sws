@@ -29,27 +29,43 @@ server.registerRoute(Server.APP_SCOPE + "/train", {
         if (this.GET.known == -1) {
           entry.fails = (entry.fails || 0) + 1;
         }
-        entry.points = (entry.points || 0) + Number(this.GET.known) - Number(this.GET.hints_used) * 0.5;
-        delete entry.is_well_known;
-        delete entry.is_known;
-        delete entry.is_unknown;
+        await idb.put("vocabulary", entry);
 
-        if (entry.points > 20) {
-          entry.is_well_known = true;
-        } else if (entry.points > 0) {
-          entry.is_known = true;
-        } else if (entry.points < 0) {
-          entry.is_unknown = true;
+        let entries = await idb.get("vocabulary", { set_id: entry.set_id });
+        let entry_set = (await idb.get("vocabulary_sets", { id: entry.set_id }))[0];
+        entry_set.points = (entry_set.points || 0) + Number(this.GET.known) - Number(this.GET.hints_used) * 0.5;
+        entry_set.tries++;
+
+        delete entry_set.is_well_known;
+        delete entry_set.is_known;
+        delete entry_set.is_unknown;
+
+        if (entry_set.points > 5) {
+          entry_set.is_well_known = 1;
+        } else if (entry_set.points > 0) {
+          entry_set.is_known = 1;
+        } else if (entry_set.points < 0) {
+          entry_set.is_unknown = 1;
         }
-        idb.put("vocabulary", entry);
+
+        await idb.put("vocabulary_sets", entry_set);
+
+        await Promise.all(entries.map(async entry => {
+          if (entry_set.points > 20) {
+            delete entry.fails;
+          }
+
+          await idb.put("vocabulary", entry);
+        }));
       }
     }
 
-    let unknown_items_count = await idb.index("vocabulary", "is_unknown").count();
-    let well_known_items_count = await idb.index("vocabulary", "is_well_known").count();
-    let known_items_count = await idb.index("vocabulary", "is_known").count();
-    let tried_items_count = await idb.index("vocabulary", "by_tries").count();
-    let new_items_count = await idb.count("vocabulary") - tried_items_count;
+    let unknown_items_count = await idb.index("vocabulary_sets", "is_unknown").count();
+    let well_known_items_count = await idb.index("vocabulary_sets", "is_well_known").count();
+    let known_items_count = await idb.index("vocabulary_sets", "is_known").count();
+    let items_count = await idb.count("vocabulary_sets");
+    let tried_items_count = known_items_count + unknown_items_count + well_known_items_count;
+    let new_items_count = items_count - tried_items_count;
 
     let range: ("unknown" | "known" | "well-known" | "new" | "random")[] = [];
     if (unknown_items_count > 20) {
@@ -70,46 +86,51 @@ server.registerRoute(Server.APP_SCOPE + "/train", {
 
     let range_length = range.length;
 
-    if (range_length < 75 && well_known_items_count >= 25) {
+    if (well_known_items_count >= 25) {
       range.push(...Array(25).fill("well-known"));
-    } else if (range_length < 100 && well_known_items_count > 0) {
-      range.push(...Array(100 - range_length).fill("well-known"));
+    } else {
+      range.push(...Array(well_known_items_count).fill("well-known"));
     }
 
     range_length = range.length;
 
+    if (new_items_count > 0) {
+      range.push(...Array(25).fill("new"));
+    }
+    
+    range.push(...Array(25).fill("random"));
+
     if (range_length < 100) {
-      range.push(...Array(100 - range_length).fill(new_items_count > 0 ? "new" : "random"));
+      range.push(...Array(100 - range_length).fill("random"));
     }
 
     let item: VocCardPageData = null;
 
     let index = rndInt(0, range.length - 1);
     let entry: Entry = null;
-    let array: Entry[] = null;
+    let entries: Entry[] = null;
+    let entry_sets: EntrySet[] = null;
 
     switch (range[index]) {
       case "known":
-        array = await idb.index("vocabulary", "is_known").getAll();
-        entry = array[rndInt(0, array.length - 1)];
+        entry_sets = await idb.index("vocabulary_sets", "is_known").get();
         break;
       case "new":
-        array = await idb.get("vocabulary", { tries: 0 });
-        entry = array[0];
+        entry_sets = await idb.get("vocabulary_sets", { tries: 0 });
         break;
       case "random":
-        array = await idb.getAll("vocabulary");
-        entry = array[rndInt(0, array.length - 1)];
+        entry_sets = await idb.get("vocabulary_sets");
         break;
       case "unknown":
-        array = await idb.index("vocabulary", "is_unknown").getAll();
-        entry = array[rndInt(0, array.length - 1)];
+        entry_sets = await idb.index("vocabulary_sets", "is_unknown").get();
         break;
       case "well-known":
-        array = await idb.index("vocabulary", "is_well_known").getAll();
-        entry = array[rndInt(0, array.length - 1)];
+        entry_sets = await idb.index("vocabulary_sets", "is_well_known").get();
         break;
     }
+    
+    entries = await idb.get("vocabulary", { set_id: entry_sets[rndInt(0, entry_sets.length - 1)].id });
+    entry = entries[rndInt(0, entries.length - 1)];
 
     if (entry) {
       item = {
@@ -121,7 +142,7 @@ server.registerRoute(Server.APP_SCOPE + "/train", {
         hint_lesson: entry.lesson.toString(),
         hint_transcription: entry.transcription,
         hint_tries: entry.tries,
-        hint_points: entry.points || 0
+        hint_points: (await idb.get("vocabulary_sets", { id: entry.set_id }))[0].points
       };
     } else {
       item = {

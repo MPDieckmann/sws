@@ -88,17 +88,28 @@ class IndexedDB extends EventTarget {
     #state = this.STATE_CLOSED;
     #queue = [];
     #ready;
+    #name;
+    #version;
     get ready() {
         return this.#ready;
     }
     get state() {
         return this.#state;
     }
+    get name() {
+        return this.#name;
+    }
+    get version() {
+        return this.#version;
+    }
     constructor(name, version, objectStoreDefinitions) {
         super();
+        this.#name = name;
+        this.#version = version;
         this.#ready = new Promise((resolve, reject) => {
             let request = indexedDB.open(name, version);
             request.addEventListener("success", () => {
+                this.#version = request.result.version;
                 this.#idb = request.result;
                 this.dispatchEvent(new IndexedDBEvent("statechange", {
                     cancelable: false,
@@ -113,13 +124,14 @@ class IndexedDB extends EventTarget {
                     arguments: {
                         name,
                         version,
-                        objectStoreDefinitions
+                        objectStoreDefinitions: objectStoreDefinitions
                     },
                     result: request.result
                 }));
                 resolve(this);
             });
             request.addEventListener("upgradeneeded", () => {
+                this.#version = request.result.version;
                 this.dispatchEvent(new IndexedDBEvent("statechange", {
                     cancelable: false,
                     function: "statechange",
@@ -133,11 +145,12 @@ class IndexedDB extends EventTarget {
                     arguments: {
                         name,
                         version,
-                        objectStoreDefinitions
+                        objectStoreDefinitions: objectStoreDefinitions
                     },
                     result: request.result
                 }));
-                objectStoreDefinitions.forEach(objectStoreDefinition => {
+                Object.keys(objectStoreDefinitions).forEach(objectStoreName => {
+                    let objectStoreDefinition = objectStoreDefinitions[objectStoreName];
                     let objectStore = request.result.createObjectStore(objectStoreDefinition.name, objectStoreDefinition);
                     objectStoreDefinition.indices.forEach(index => {
                         objectStore.createIndex(index.name, index.keyPath, index);
@@ -151,7 +164,7 @@ class IndexedDB extends EventTarget {
                     arguments: {
                         name,
                         version,
-                        objectStoreDefinitions
+                        objectStoreDefinitions: objectStoreDefinitions
                     },
                     error: request.error
                 }));
@@ -171,7 +184,7 @@ class IndexedDB extends EventTarget {
                     arguments: {
                         name,
                         version,
-                        objectStoreDefinitions
+                        objectStoreDefinitions: objectStoreDefinitions
                     },
                     error: request.error
                 }));
@@ -225,7 +238,7 @@ class IndexedDB extends EventTarget {
                     function: "add",
                     arguments: {
                         objectStoreName,
-                        record
+                        record,
                     },
                     result: request.result
                 }));
@@ -276,43 +289,39 @@ class IndexedDB extends EventTarget {
         });
     }
     #get(objectStoreName, query) {
-        return new Promise(async (resolve, reject) => {
-            await this.#ready;
-            let request = this.#idb.transaction([objectStoreName], "readwrite").objectStore(objectStoreName).openCursor();
-            let results = [];
-            request.addEventListener("success", () => {
-                let cursor = request.result;
-                if (cursor) {
-                    if (this.#record_matches_query(cursor.value, query)) {
-                        results.push(cursor.value);
-                    }
-                    cursor.continue();
-                }
-                else {
-                    this.dispatchEvent(new IndexedDBEvent("success", {
-                        cancelable: false,
-                        function: "get",
-                        arguments: {
-                            objectStoreName,
-                            query
-                        },
-                        result: results
-                    }));
-                    resolve(results);
-                }
-            });
-            request.addEventListener("error", () => {
-                this.dispatchEvent(new IndexedDBEvent("error", {
-                    cancelable: false,
-                    function: "get",
-                    arguments: {
-                        objectStoreName,
-                        query
-                    },
-                    error: request.error
-                }));
-                reject(request.error);
-            });
+        let results = [];
+        return this.#cursor(objectStoreName, "readonly", typeof query == "function" ? async (cursor) => {
+            if (await query(cursor.value)) {
+                results.push(cursor.value);
+            }
+        } : cursor => {
+            if (this.#record_matches_query(cursor.value, query)) {
+                results.push(cursor.value);
+            }
+        }).then(() => {
+            this.dispatchEvent(new IndexedDBEvent("success", {
+                cancelable: false,
+                function: "get",
+                arguments: {
+                    objectStoreName,
+                    callback: typeof query == "function" ? query : null,
+                    query: typeof query == "function" ? null : query
+                },
+                result: results
+            }));
+            return results;
+        }, reason => {
+            this.dispatchEvent(new IndexedDBEvent("error", {
+                cancelable: false,
+                function: "get",
+                arguments: {
+                    objectStoreName,
+                    callback: typeof query == "function" ? query : null,
+                    query: typeof query == "function" ? null : query
+                },
+                error: reason
+            }));
+            throw reason;
         });
     }
     #getAll(objectStoreName) {
@@ -322,9 +331,11 @@ class IndexedDB extends EventTarget {
             request.addEventListener("success", () => {
                 this.dispatchEvent(new IndexedDBEvent("success", {
                     cancelable: false,
-                    function: "getAll",
+                    function: "get",
                     arguments: {
-                        objectStoreName
+                        objectStoreName,
+                        callback: null,
+                        query: null
                     },
                     result: request.result
                 }));
@@ -333,50 +344,11 @@ class IndexedDB extends EventTarget {
             request.addEventListener("error", () => {
                 this.dispatchEvent(new IndexedDBEvent("error", {
                     cancelable: false,
-                    function: "getAll",
-                    arguments: {
-                        objectStoreName
-                    },
-                    error: request.error
-                }));
-                reject(request.error);
-            });
-        });
-    }
-    #delete(objectStoreName, query) {
-        return new Promise(async (resolve, reject) => {
-            await this.#ready;
-            let request = this.#idb.transaction([objectStoreName], "readwrite").objectStore(objectStoreName).openCursor();
-            let results = [];
-            request.addEventListener("success", () => {
-                let cursor = request.result;
-                if (cursor) {
-                    if (this.#record_matches_query(cursor.value, query)) {
-                        results.push(cursor.value);
-                        cursor.delete();
-                    }
-                    cursor.continue();
-                }
-                else {
-                    this.dispatchEvent(new IndexedDBEvent("success", {
-                        cancelable: false,
-                        function: "delete",
-                        arguments: {
-                            objectStoreName,
-                            query
-                        },
-                        result: results
-                    }));
-                    resolve(results);
-                }
-            });
-            request.addEventListener("error", () => {
-                this.dispatchEvent(new IndexedDBEvent("error", {
-                    cancelable: false,
-                    function: "delete",
+                    function: "get",
                     arguments: {
                         objectStoreName,
-                        query
+                        callback: null,
+                        query: null
                     },
                     error: request.error
                 }));
@@ -384,7 +356,43 @@ class IndexedDB extends EventTarget {
             });
         });
     }
-    #count(objectStoreName) {
+    #count(objectStoreName, query) {
+        let results = 0;
+        return this.#cursor(objectStoreName, "readonly", typeof query == "function" ? async (cursor) => {
+            if (await query(cursor.value)) {
+                results++;
+            }
+        } : cursor => {
+            if (this.#record_matches_query(cursor.value, query)) {
+                results++;
+            }
+        }).then(() => {
+            this.dispatchEvent(new IndexedDBEvent("success", {
+                cancelable: false,
+                function: "count",
+                arguments: {
+                    objectStoreName,
+                    callback: typeof query == "function" ? query : null,
+                    query: typeof query == "function" ? null : query
+                },
+                result: results
+            }));
+            return results;
+        }, reason => {
+            this.dispatchEvent(new IndexedDBEvent("error", {
+                cancelable: false,
+                function: "count",
+                arguments: {
+                    objectStoreName,
+                    callback: typeof query == "function" ? query : null,
+                    query: typeof query == "function" ? null : query
+                },
+                error: reason
+            }));
+            throw reason;
+        });
+    }
+    #countAll(objectStoreName) {
         return new Promise(async (resolve, reject) => {
             await this.#ready;
             let request = this.#idb.transaction([objectStoreName]).objectStore(objectStoreName).count();
@@ -393,7 +401,9 @@ class IndexedDB extends EventTarget {
                     cancelable: false,
                     function: "count",
                     arguments: {
-                        objectStoreName
+                        objectStoreName,
+                        callback: null,
+                        query: null
                     },
                     result: request.result
                 }));
@@ -404,7 +414,9 @@ class IndexedDB extends EventTarget {
                     cancelable: false,
                     function: "count",
                     arguments: {
-                        objectStoreName
+                        objectStoreName,
+                        callback: null,
+                        query: null
                     },
                     error: request.error
                 }));
@@ -412,16 +424,65 @@ class IndexedDB extends EventTarget {
             });
         });
     }
-    #clear(objectStoreName) {
+    #delete(objectStoreName, query) {
+        return this.#cursor(objectStoreName, "readwrite", typeof query == "function" ? async (cursor) => {
+            if (await query(cursor.value)) {
+                await new Promise((resolve, reject) => {
+                    let request = cursor.delete();
+                    request.addEventListener("success", () => {
+                        resolve();
+                    });
+                    request.addEventListener("error", () => reject(request.error));
+                });
+            }
+        } : async (cursor) => {
+            if (this.#record_matches_query(cursor.value, query)) {
+                await new Promise((resolve, reject) => {
+                    let request = cursor.delete();
+                    request.addEventListener("success", () => {
+                        resolve();
+                    });
+                    request.addEventListener("error", () => reject(request.error));
+                });
+            }
+        }).then(() => {
+            this.dispatchEvent(new IndexedDBEvent("success", {
+                cancelable: false,
+                function: "delete",
+                arguments: {
+                    objectStoreName,
+                    callback: typeof query == "function" ? query : null,
+                    query: typeof query == "function" ? null : query
+                },
+                result: null
+            }));
+            return null;
+        }, reason => {
+            this.dispatchEvent(new IndexedDBEvent("error", {
+                cancelable: false,
+                function: "delete",
+                arguments: {
+                    objectStoreName,
+                    callback: typeof query == "function" ? query : null,
+                    query: typeof query == "function" ? null : query
+                },
+                error: reason
+            }));
+            throw reason;
+        });
+    }
+    #deleteAll(objectStoreName) {
         return new Promise(async (resolve, reject) => {
             await this.#ready;
             let request = this.#idb.transaction([objectStoreName], "readwrite").objectStore(objectStoreName).clear();
             request.addEventListener("success", () => {
                 this.dispatchEvent(new IndexedDBEvent("success", {
                     cancelable: false,
-                    function: "clear",
+                    function: "delete",
                     arguments: {
-                        objectStoreName
+                        objectStoreName,
+                        callback: null,
+                        query: null
                     },
                     result: request.result
                 }));
@@ -430,9 +491,11 @@ class IndexedDB extends EventTarget {
             request.addEventListener("error", () => {
                 this.dispatchEvent(new IndexedDBEvent("error", {
                     cancelable: false,
-                    function: "clear",
+                    function: "delete",
                     arguments: {
-                        objectStoreName
+                        objectStoreName,
+                        callback: null,
+                        query: null
                     },
                     error: request.error
                 }));
@@ -440,42 +503,21 @@ class IndexedDB extends EventTarget {
             });
         });
     }
-    #openCursor(objectStoreName, cursorCallback) {
+    #cursor(objectStoreName, mode, callback) {
         return new Promise(async (resolve, reject) => {
             await this.#ready;
-            let request = this.#idb.transaction([objectStoreName], "readwrite").objectStore(objectStoreName).openCursor();
-            let results = [];
-            request.addEventListener("success", () => {
+            let request = this.#idb.transaction([objectStoreName], mode).objectStore(objectStoreName).openCursor();
+            request.addEventListener("success", async () => {
                 let cursor = request.result;
                 if (cursor) {
-                    if (cursorCallback(cursor.value)) {
-                        results.push(cursor.value);
-                    }
+                    await callback(cursor);
                     cursor.continue();
                 }
                 else {
-                    this.dispatchEvent(new IndexedDBEvent("success", {
-                        cancelable: false,
-                        function: "openCursor",
-                        arguments: {
-                            objectStoreName,
-                            cursorCallback
-                        },
-                        result: results
-                    }));
-                    resolve(results);
+                    resolve();
                 }
             });
             request.addEventListener("error", () => {
-                this.dispatchEvent(new IndexedDBEvent("error", {
-                    cancelable: false,
-                    function: "openCursor",
-                    arguments: {
-                        objectStoreName,
-                        cursorCallback
-                    },
-                    error: request.error
-                }));
                 reject(request.error);
             });
         });
@@ -517,44 +559,41 @@ class IndexedDB extends EventTarget {
             this.#dequeue();
         });
     }
-    get(objectStoreName, query) {
+    get(objectStoreName, query = null) {
         return new Promise((resolve, reject) => {
-            this.#queue.push(() => this.#get(objectStoreName, query).then(resolve, reject));
+            if (query) {
+                this.#queue.push(() => this.#get(objectStoreName, query).then(resolve, reject));
+            }
+            else {
+                this.#queue.push(() => this.#getAll(objectStoreName).then(resolve, reject));
+            }
             this.#dequeue();
         });
     }
-    getAll(objectStoreName) {
+    delete(objectStoreName, query = null) {
         return new Promise((resolve, reject) => {
-            this.#queue.push(() => this.#getAll(objectStoreName).then(resolve, reject));
+            if (query) {
+                this.#queue.push(() => this.#delete(objectStoreName, query).then(resolve, reject));
+            }
+            else {
+                this.#queue.push(() => this.#deleteAll(objectStoreName).then(resolve, reject));
+            }
             this.#dequeue();
         });
     }
-    delete(objectStoreName, query) {
+    count(objectStoreName, query = null) {
         return new Promise((resolve, reject) => {
-            this.#queue.push(() => this.#delete(objectStoreName, query).then(resolve, reject));
+            if (query) {
+                this.#queue.push(() => this.#count(objectStoreName, query).then(resolve, reject));
+            }
+            else {
+                this.#queue.push(() => this.#countAll(objectStoreName).then(resolve, reject));
+            }
             this.#dequeue();
         });
     }
-    count(objectStoreName) {
-        return new Promise((resolve, reject) => {
-            this.#queue.push(() => this.#count(objectStoreName).then(resolve, reject));
-            this.#dequeue();
-        });
-    }
-    clear(objectStoreName) {
-        return new Promise((resolve, reject) => {
-            this.#queue.push(() => this.#clear(objectStoreName).then(resolve, reject));
-            this.#dequeue();
-        });
-    }
-    openCursor(objectStoreName, cursorCallback) {
-        return new Promise((resolve, reject) => {
-            this.#queue.push(() => this.#openCursor(objectStoreName, cursorCallback).then(resolve, reject));
-            this.#dequeue();
-        });
-    }
-    index(objectStoreName, index) {
-        return new IndexedDBIndex(this.#idb.transaction([objectStoreName], "readonly").objectStore(objectStoreName).index(index));
+    index(objectStoreName, index, mode = "readonly") {
+        return new IndexedDBIndex(this.#idb.transaction([objectStoreName], mode).objectStore(objectStoreName).index(index));
     }
     #staticEvents = new Map();
     get onsuccess() {
@@ -629,7 +668,19 @@ class IndexedDBIndex extends EventTarget {
     #index;
     #state = this.STATE_CLOSED;
     #queue = [];
-    #ready;
+    async #ready() {
+        if (this.#state == this.STATE_CLOSED) {
+            this.#index = this.#index.objectStore.transaction.db.transaction([this.#index.objectStore.name], this.#index.objectStore.transaction.mode).objectStore(this.#index.objectStore.name).index(this.#index.name);
+            this.dispatchEvent(new IndexedDBEvent("statechange", {
+                cancelable: false,
+                function: "statechange",
+                arguments: null,
+                result: this.STATE_IDLE
+            }));
+            this.#state = this.STATE_IDLE;
+            // console.log("IndexedDBIndex: idle");
+        }
+    }
     get state() {
         return this.#state;
     }
@@ -648,9 +699,37 @@ class IndexedDBIndex extends EventTarget {
     get unique() {
         return this.#index.unique;
     }
+    get mode() {
+        return this.#index.objectStore.transaction.mode;
+    }
     constructor(index) {
         super();
         this.#index = index;
+        this.#index.objectStore.transaction.addEventListener("complete", () => {
+            if (this.#state == this.STATE_OPERATING) {
+                this.#index = this.#index.objectStore.transaction.db.transaction([this.#index.objectStore.name], this.#index.objectStore.transaction.mode).objectStore(this.#index.objectStore.name).index(this.#index.name);
+            }
+            else {
+                this.dispatchEvent(new IndexedDBEvent("statechange", {
+                    cancelable: false,
+                    function: "statechange",
+                    arguments: null,
+                    result: this.STATE_CLOSED
+                }));
+                this.#state = this.STATE_CLOSED;
+                // console.log("IndexedDBIndex: closed");
+            }
+        });
+        this.#index.objectStore.transaction.addEventListener("abort", () => {
+            this.dispatchEvent(new IndexedDBEvent("statechange", {
+                cancelable: false,
+                function: "statechange",
+                arguments: null,
+                result: this.STATE_CLOSED
+            }));
+            this.#state = this.STATE_CLOSED;
+            // console.log("IndexedDBIndex: closed");
+        });
         this.dispatchEvent(new IndexedDBEvent("statechange", {
             cancelable: false,
             function: "statechange",
@@ -658,8 +737,10 @@ class IndexedDBIndex extends EventTarget {
             result: this.STATE_IDLE
         }));
         this.#state = this.STATE_IDLE;
+        // console.log("IndexedDBIndex: idle");
     }
     async #dequeue() {
+        await this.#ready();
         if (this.#state == this.STATE_IDLE && this.#queue.length > 0) {
             this.dispatchEvent(new IndexedDBEvent("statechange", {
                 cancelable: false,
@@ -670,7 +751,7 @@ class IndexedDBIndex extends EventTarget {
             this.#state = this.STATE_OPERATING;
             // console.log("IndexedDBIndex: operating");
             let task;
-            while (task = this.#queue.shift()) {
+            while (this.#state == this.STATE_OPERATING && (task = this.#queue.shift())) {
                 try {
                     await task();
                 }
@@ -678,49 +759,79 @@ class IndexedDBIndex extends EventTarget {
                     console.error(error);
                 }
             }
-            this.dispatchEvent(new IndexedDBEvent("statechange", {
-                cancelable: false,
-                function: "statechange",
-                arguments: null,
-                result: this.STATE_IDLE
-            }));
-            this.#state = this.STATE_IDLE;
-            // console.log("IndexedDBIndex: idle");
+            if (this.#state == this.STATE_OPERATING) {
+                this.dispatchEvent(new IndexedDBEvent("statechange", {
+                    cancelable: false,
+                    function: "statechange",
+                    arguments: null,
+                    result: this.STATE_IDLE
+                }));
+                this.#state = this.STATE_IDLE;
+                // console.log("IndexedDBIndex: idle");
+            }
         }
     }
     #get(query) {
+        let results = [];
+        return this.#cursor(typeof query == "function" ? async (cursor) => {
+            if (await query(cursor.value)) {
+                results.push(cursor.value);
+            }
+        } : cursor => {
+            if (this.#record_matches_query(cursor.value, query)) {
+                results.push(cursor.value);
+            }
+        }).then(() => {
+            this.dispatchEvent(new IndexedDBEvent("success", {
+                cancelable: false,
+                function: "get",
+                arguments: {
+                    objectStoreName: this.objectStoreName,
+                    callback: typeof query == "function" ? query : null,
+                    query: typeof query == "function" ? null : query
+                },
+                result: results
+            }));
+            return results;
+        }, reason => {
+            this.dispatchEvent(new IndexedDBEvent("error", {
+                cancelable: false,
+                function: "get",
+                arguments: {
+                    objectStoreName: this.objectStoreName,
+                    callback: typeof query == "function" ? query : null,
+                    query: typeof query == "function" ? null : query
+                },
+                error: reason
+            }));
+            throw reason;
+        });
+    }
+    #getAll() {
         return new Promise(async (resolve, reject) => {
-            await this.#ready;
-            let request = this.#index.openCursor();
-            let results = [];
+            await this.#ready();
+            let request = this.#index.getAll();
             request.addEventListener("success", () => {
-                let cursor = request.result;
-                if (cursor) {
-                    if (this.#record_matches_query(cursor.value, query)) {
-                        results.push(cursor.value);
-                    }
-                    cursor.continue();
-                }
-                else {
-                    this.dispatchEvent(new IndexedDBEvent("success", {
-                        cancelable: false,
-                        function: "get",
-                        arguments: {
-                            objectStoreName: request.source.objectStore.name,
-                            query
-                        },
-                        result: results
-                    }));
-                    resolve(results);
-                }
+                this.dispatchEvent(new IndexedDBEvent("success", {
+                    cancelable: false,
+                    function: "get",
+                    arguments: {
+                        objectStoreName: this.objectStoreName,
+                        callback: null,
+                        query: null
+                    },
+                    result: request.result
+                }));
+                resolve(request.result);
             });
             request.addEventListener("error", () => {
                 this.dispatchEvent(new IndexedDBEvent("error", {
                     cancelable: false,
                     function: "get",
                     arguments: {
-                        objectStoreName: request.source.objectStore.name,
-                        query
+                        objectStoreName: this.objectStoreName,
+                        callback: null,
+                        query: null
                     },
                     error: request.error
                 }));
@@ -728,44 +839,54 @@ class IndexedDBIndex extends EventTarget {
             });
         });
     }
-    #getAll() {
-        return new Promise(async (resolve, reject) => {
-            await this.#ready;
-            let request = this.#index.getAll();
-            request.addEventListener("success", () => {
-                this.dispatchEvent(new IndexedDBEvent("success", {
-                    cancelable: false,
-                    function: "getAll",
-                    arguments: {
-                        objectStoreName: request.source.objectStore.name
-                    },
-                    result: request.result
-                }));
-                resolve(request.result);
-            });
-            request.addEventListener("error", () => {
-                this.dispatchEvent(new IndexedDBEvent("error", {
-                    cancelable: false,
-                    function: "getAll",
-                    arguments: {
-                        objectStoreName: request.source.objectStore.name
-                    },
-                    error: request.error
-                }));
-                reject(request.error);
-            });
+    #count(query) {
+        let results = 0;
+        return this.#cursor(typeof query == "function" ? async (cursor) => {
+            if (await query(cursor.value)) {
+                results++;
+            }
+        } : cursor => {
+            if (this.#record_matches_query(cursor.value, query)) {
+                results++;
+            }
+        }).then(() => {
+            this.dispatchEvent(new IndexedDBEvent("success", {
+                cancelable: false,
+                function: "count",
+                arguments: {
+                    objectStoreName: this.objectStoreName,
+                    callback: typeof query == "function" ? query : null,
+                    query: typeof query == "function" ? null : query
+                },
+                result: results
+            }));
+            return results;
+        }, reason => {
+            this.dispatchEvent(new IndexedDBEvent("error", {
+                cancelable: false,
+                function: "count",
+                arguments: {
+                    objectStoreName: this.objectStoreName,
+                    callback: typeof query == "function" ? query : null,
+                    query: typeof query == "function" ? null : query
+                },
+                error: reason
+            }));
+            throw reason;
         });
     }
-    #count() {
+    #countAll() {
         return new Promise(async (resolve, reject) => {
-            await this.#ready;
+            await this.#ready();
             let request = this.#index.count();
             request.addEventListener("success", () => {
                 this.dispatchEvent(new IndexedDBEvent("success", {
                     cancelable: false,
                     function: "count",
                     arguments: {
-                        objectStoreName: request.source.objectStore.name
+                        objectStoreName: this.objectStoreName,
+                        callback: null,
+                        query: null
                     },
                     result: request.result
                 }));
@@ -776,7 +897,9 @@ class IndexedDBIndex extends EventTarget {
                     cancelable: false,
                     function: "count",
                     arguments: {
-                        objectStoreName: request.source.objectStore.name
+                        objectStoreName: this.objectStoreName,
+                        callback: null,
+                        query: null
                     },
                     error: request.error
                 }));
@@ -784,42 +907,103 @@ class IndexedDBIndex extends EventTarget {
             });
         });
     }
-    #openCursor(cursorCallback) {
+    #delete(query) {
+        return this.#cursor(typeof query == "function" ? async (cursor) => {
+            if (await query(cursor.value)) {
+                await new Promise((resolve, reject) => {
+                    let request = cursor.delete();
+                    request.addEventListener("success", () => {
+                        resolve();
+                    });
+                    request.addEventListener("error", () => reject(request.error));
+                });
+            }
+        } : async (cursor) => {
+            if (this.#record_matches_query(cursor.value, query)) {
+                await new Promise((resolve, reject) => {
+                    let request = cursor.delete();
+                    request.addEventListener("success", () => {
+                        resolve();
+                    });
+                    request.addEventListener("error", () => reject(request.error));
+                });
+            }
+        }).then(() => {
+            this.dispatchEvent(new IndexedDBEvent("success", {
+                cancelable: false,
+                function: "delete",
+                arguments: {
+                    objectStoreName: this.objectStoreName,
+                    callback: typeof query == "function" ? query : null,
+                    query: typeof query == "function" ? null : query
+                },
+                result: null
+            }));
+            return null;
+        }, reason => {
+            this.dispatchEvent(new IndexedDBEvent("error", {
+                cancelable: false,
+                function: "delete",
+                arguments: {
+                    objectStoreName: this.objectStoreName,
+                    callback: typeof query == "function" ? query : null,
+                    query: typeof query == "function" ? null : query
+                },
+                error: reason
+            }));
+            throw reason;
+        });
+    }
+    #deleteAll() {
+        return this.#cursor(async (cursor) => {
+            await new Promise((resolve, reject) => {
+                let request = cursor.delete();
+                request.addEventListener("success", () => {
+                    resolve();
+                });
+                request.addEventListener("error", () => reject(request.error));
+            });
+        }).then(() => {
+            this.dispatchEvent(new IndexedDBEvent("success", {
+                cancelable: false,
+                function: "delete",
+                arguments: {
+                    objectStoreName: this.objectStoreName,
+                    callback: null,
+                    query: null
+                },
+                result: null
+            }));
+            return null;
+        }, reason => {
+            this.dispatchEvent(new IndexedDBEvent("error", {
+                cancelable: false,
+                function: "delete",
+                arguments: {
+                    objectStoreName: this.objectStoreName,
+                    callback: null,
+                    query: null
+                },
+                error: reason
+            }));
+            throw reason;
+        });
+    }
+    #cursor(callback) {
         return new Promise(async (resolve, reject) => {
-            await this.#ready;
+            await this.#ready();
             let request = this.#index.openCursor();
-            let results = [];
             request.addEventListener("success", () => {
                 let cursor = request.result;
                 if (cursor) {
-                    if (cursorCallback(cursor.value)) {
-                        results.push(cursor.value);
-                    }
+                    callback(cursor);
                     cursor.continue();
                 }
                 else {
-                    this.dispatchEvent(new IndexedDBEvent("success", {
-                        cancelable: false,
-                        function: "openCursor",
-                        arguments: {
-                            objectStoreName: request.source.objectStore.name,
-                            cursorCallback
-                        },
-                        result: results
-                    }));
-                    resolve(results);
+                    resolve();
                 }
             });
             request.addEventListener("error", () => {
-                this.dispatchEvent(new IndexedDBEvent("error", {
-                    cancelable: false,
-                    function: "openCursor",
-                    arguments: {
-                        objectStoreName: request.source.objectStore.name,
-                        cursorCallback
-                    },
-                    error: request.error
-                }));
                 reject(request.error);
             });
         });
@@ -849,27 +1033,39 @@ class IndexedDBIndex extends EventTarget {
         }
         return true;
     }
-    get(query) {
+    get(query = null) {
         return new Promise((resolve, reject) => {
-            this.#queue.push(() => this.#get(query).then(resolve, reject));
+            if (query) {
+                this.#queue.push(() => this.#get(query).then(resolve, reject));
+            }
+            else {
+                this.#queue.push(() => this.#getAll().then(resolve, reject));
+            }
             this.#dequeue();
         });
     }
-    getAll() {
+    count(query = null) {
         return new Promise((resolve, reject) => {
-            this.#queue.push(() => this.#getAll().then(resolve, reject));
+            if (query) {
+                this.#queue.push(() => this.#count(query).then(resolve, reject));
+            }
+            else {
+                this.#queue.push(() => this.#countAll().then(resolve, reject));
+            }
             this.#dequeue();
         });
     }
-    count() {
+    delete(query = null) {
+        if (this.#index.objectStore.transaction.mode != "readwrite") {
+            return Promise.reject(new DOMException(`Failed to execute 'delete' on '${this.constructor.name}': The record may not be deleted inside a read-only transaction.`, "ReadOnlyError"));
+        }
         return new Promise((resolve, reject) => {
-            this.#queue.push(() => this.#count().then(resolve, reject));
-            this.#dequeue();
-        });
-    }
-    openCursor(cursorCallback) {
-        return new Promise((resolve, reject) => {
-            this.#queue.push(() => this.#openCursor(cursorCallback).then(resolve, reject));
+            if (query) {
+                this.#queue.push(() => this.#delete(query).then(resolve, reject));
+            }
+            else {
+                this.#queue.push(() => this.#deleteAll().then(resolve, reject));
+            }
             this.#dequeue();
         });
     }
@@ -905,6 +1101,8 @@ class IndexedDBIndex extends EventTarget {
         }
     }
 }
+/// <reference no-default-lib="true" />
+/// <reference path="index.ts" />
 class IndexedDBEvent extends Event {
     [Symbol.toStringTag] = "IndexedDBEvent";
     function;
@@ -981,19 +1179,22 @@ class Server extends EventTarget {
     #VERSION;
     #settings = new Map();
     #start;
-    #idb = new IndexedDB("Server", 1, [{
+    #idb = new IndexedDB("Server", 1, {
+        settings: {
             name: "settings",
             autoIncrement: false,
             keyPath: "key",
             indices: []
-        }, {
+        },
+        log: {
             name: "log",
             autoIncrement: true,
             keyPath: "id",
             indices: [
                 { name: "by_type", keyPath: "type", multiEntry: false, unique: false }
             ]
-        }]);
+        }
+    });
     get version() { return this.#VERSION; }
     get pinging() { return this.#pinging; }
     get server_online() { return this.getSetting("offline-mode") ? false : this.#connected; }
@@ -1036,7 +1237,7 @@ class Server extends EventTarget {
             await Promise.all(promises);
             return this;
         })();
-        this.#idb.getAll("settings").then(values => {
+        this.#idb.get("settings").then(values => {
             values.forEach(record => {
                 this.#settings.set(record.key, record.value);
             });
@@ -1063,7 +1264,7 @@ class Server extends EventTarget {
         await this.#log("error", message, stack);
     }
     async clear_log() {
-        await this.#idb.clear("log");
+        await this.#idb.delete("log");
         this.#log("clear", "Das Protokoll wurde erfolgreich gelöscht", null);
         console.clear();
     }
@@ -1073,7 +1274,7 @@ class Server extends EventTarget {
         error: true
     }) {
         if (types.log && types.warn && types.error) {
-            return this.#idb.getAll("log");
+            return this.#idb.get("log");
         }
         else {
             let type_array = [];
@@ -2691,7 +2892,11 @@ server.registerRoute(Server.APP_SCOPE + "/", {
         this.add_script("main-js", this.files["main.js"].url);
         return await this.build({
             page_title: "Startseite",
-            main: `<a href="/train">Trainieren</a>`,
+            main: `<ul>
+  <li><a href="/train">Trainieren</a></li>
+  <li><a href="/debug">Debug</a></li>
+  <li><a href="/list">Liste</a></li>
+</ul>`,
         }, await this.files["layout.html"].text());
     }
 });
@@ -2700,8 +2905,329 @@ server.registerRoute(Server.APP_SCOPE + "/", {
 server.registerRoute(Server.APP_SCOPE + "/install.html", {
     response: server.createRedirection(Server.APP_SCOPE + "/")
 });
+/// <reference no-default-lib="true" />
+/// <reference path="server/index.ts" />
+let idb = new IndexedDB("voc", 2, {
+    vocabulary: {
+        name: "vocabulary",
+        keyPath: "id",
+        autoIncrement: false,
+        indices: [
+            { name: "by_lesson", keyPath: "lesson", multiEntry: false, unique: false },
+            { name: "by_german", keyPath: "german", multiEntry: true, unique: false },
+            { name: "by_hebrew", keyPath: "hebrew", multiEntry: false, unique: false },
+            { name: "by_tries", keyPath: "tries", multiEntry: false, unique: false },
+            { name: "by_points", keyPath: "points", multiEntry: false, unique: false },
+            { name: "by_fails", keyPath: "fails", multiEntry: false, unique: false },
+            { name: "is_well_known", keyPath: "is_well_known", multiEntry: false, unique: false },
+            { name: "is_known", keyPath: "is_known", multiEntry: false, unique: false },
+            { name: "is_unknown", keyPath: "is_unknown", multiEntry: false, unique: false }
+        ]
+    },
+    lessons: {
+        name: "lessons",
+        keyPath: "number",
+        autoIncrement: false,
+        indices: []
+    },
+    vocabulary_sets: {
+        name: "vocabulary_sets",
+        keyPath: "id",
+        autoIncrement: false,
+        indices: [
+            { name: "by_points", keyPath: "points", multiEntry: false, unique: false },
+            { name: "is_well_known", keyPath: "is_well_known", multiEntry: false, unique: false },
+            { name: "is_known", keyPath: "is_known", multiEntry: false, unique: false },
+            { name: "is_unknown", keyPath: "is_unknown", multiEntry: false, unique: false }
+        ]
+    }
+});
+async function update_lessons() {
+    let server_lessons = await server.apiFetch("get_lessons");
+    let local_lessons = (await idb.get("lessons")).map(a => a.number);
+    let new_lessons = server_lessons.filter(a => local_lessons.indexOf(a) < 0);
+    if (new_lessons.length > 0) {
+        let i = 0;
+        let l = new_lessons.length;
+        for (i; i < l; i++) {
+            await add_lesson(new_lessons[i]);
+        }
+        return l;
+    }
+    return 0;
+}
+async function add_lesson(lesson) {
+    let lesson_text = await server.apiFetch("get_lesson", [lesson]);
+    if (lesson_text === false) {
+        return false;
+    }
+    let sets = new Set();
+    if ((await idb.count("vocabulary_sets")) > 0) {
+        (await idb.get("vocabulary_sets")).forEach(set => {
+            sets.add(set.id);
+        });
+    }
+    await Promise.all(lesson_text.replace(/\r/g, "").split("\n").map(async (line) => {
+        let entry = line.split("\t");
+        if (entry.length < 8) {
+            return false;
+        }
+        if (!sets.has(entry[2] + "-" + entry[3])) {
+            sets.add(entry[2] + "-" + entry[3]);
+            await idb.add("vocabulary_sets", {
+                id: entry[2] + "-" + entry[3],
+                lesson: Number(entry[2]),
+                points: 0,
+                tries: 0
+            });
+        }
+        await idb.add("vocabulary", {
+            lesson: Number(entry[0]),
+            id: entry[0] + "-" + entry[1],
+            set_id: entry[2] + "-" + entry[3],
+            german: (entry[4] || "").normalize("NFD").split("; "),
+            transcription: (entry[5] || "").normalize("NFD"),
+            hebrew: (entry[6] || "").normalize("NFD"),
+            hints_german: (entry[7] || "").normalize("NFD").split("; "),
+            hints_hebrew: (entry[7] || "").normalize("NFD").split("; ").map(hint => {
+                switch (hint) {
+                    case "m.Sg.":
+                        return "ז'";
+                    case "f.Sg.":
+                        return "נ'";
+                    case "m.Pl.":
+                        return "ז\"ר";
+                    case "f.Pl.":
+                        return "נ\"ר";
+                    case "ugs.":
+                        return "\u05e1'";
+                    default:
+                        return hint;
+                }
+            }),
+            tries: 0
+        });
+    }));
+    await idb.add("lessons", {
+        name: "Lesson " + lesson,
+        number: Number(lesson)
+    });
+    return true;
+}
+server.addEventListener("ping", event => {
+    event.data.await(update_lessons());
+});
+server.addEventListener("beforestart", event => {
+    event.data.await(idb.ready);
+});
+/// <reference no-default-lib="true" />
+/// <reference path="../main.ts" />
 // Möglichkeit, ein globales Navigationsmenü zu erstellen über die Unterseiten
 // Jede Unterseite kann sich alleine hinzufügen (durch einen dezimal-Wert kann die eigene Position geregelt werden)
+server.registerRoute(Server.APP_SCOPE + "/list", {
+    files: {
+        "mpc.css": Server.APP_SCOPE + "/client/css/mpc.css",
+        "main.css": Server.APP_SCOPE + "/client/css/main.css",
+        "print.css": Server.APP_SCOPE + "/client/css/print.css",
+        "list.css": Server.APP_SCOPE + "/client/css/list.css",
+        "main.js": Server.APP_SCOPE + "/client/js/main.js",
+        "layout.html": Server.APP_SCOPE + "/client/html/layout.html"
+    },
+    async response() {
+        this.add_style("mpc-css", this.files["mpc.css"].url);
+        this.add_style("main-css", this.files["main.css"].url);
+        this.add_style("print-css", this.files["print.css"].url, "print");
+        this.add_style("list-css", this.files["list.css"].url);
+        this.add_script("main-js", this.files["main.js"].url);
+        let main = ``;
+        let unknown_items_count = await idb.index("vocabulary_sets", "is_unknown").count();
+        let well_known_items_count = await idb.index("vocabulary_sets", "is_well_known").count();
+        let known_items_count = await idb.index("vocabulary_sets", "is_known").count();
+        let items_count = await idb.count("vocabulary_sets");
+        let tried_items_count = known_items_count + unknown_items_count + well_known_items_count;
+        let new_items_count = items_count - tried_items_count;
+        let lessons = await idb.get("lessons");
+        let range = [];
+        if (unknown_items_count > 20) {
+            range.push(...Array(45).fill("unknown"));
+        }
+        else if (unknown_items_count > 5) {
+            range.push(...Array(25).fill("unknown"));
+        }
+        else if (unknown_items_count > 0) {
+            range.push(...Array(15).fill("unknown"));
+        }
+        if (known_items_count > 20) {
+            range.push(...Array(45).fill("known"));
+        }
+        else if (known_items_count > 5) {
+            range.push(...Array(25).fill("known"));
+        }
+        else if (known_items_count > 0) {
+            range.push(...Array(15).fill("known"));
+        }
+        let range_length = range.length;
+        if (well_known_items_count >= 25) {
+            range.push(...Array(25).fill("well-known"));
+        }
+        else {
+            range.push(...Array(well_known_items_count).fill("well-known"));
+        }
+        range_length = range.length;
+        if (new_items_count > 0) {
+            range.push(...Array(25).fill("new"));
+        }
+        range.push(...Array(25).fill("random"));
+        if (range_length < 100) {
+            range.push(...Array(100 - range_length).fill("random"));
+        }
+        main += `<table>
+  <caption>Übersicht über Lektionen</caption>
+  <thead>
+    <tr>
+      <th>Lektion</th>
+      <th>Schwierige Wörter</th>
+      <th>Bekannte Wörter</th>
+      <th>Einfache Wörter</th>
+      <th>Neue Wörter</th>
+      <th>Gesamte Wörter</th>
+    </tr>
+  </thead>
+  <tbody>` + (await Promise.all(lessons.map(async (lesson) => {
+            let unknown_entry_sets = 0;
+            let known_entry_sets = 0;
+            let well_known_entry_sets = 0;
+            let new_entry_sets = 0;
+            let entry_sets = await idb.count("vocabulary_sets", entry_set => {
+                if (entry_set.lesson == lesson.number) {
+                    if (entry_set.is_unknown) {
+                        unknown_entry_sets++;
+                    }
+                    else if (entry_set.is_known) {
+                        known_entry_sets++;
+                    }
+                    else if (entry_set.is_well_known) {
+                        well_known_entry_sets++;
+                    }
+                    else {
+                        new_entry_sets++;
+                    }
+                    return true;
+                }
+                return false;
+            });
+            return `
+    <tr>
+      <th><a href="list?lesson=${lesson.number}">Lektion ${lesson.number}</a></td>
+      <td>${unknown_entry_sets}</td>
+      <td>${known_entry_sets}</td>
+      <td>${well_known_entry_sets}</td>
+      <td>${new_entry_sets}</td>
+      <td>${entry_sets}</td>
+    </tr>`;
+        }))).join("") + `
+  </tbody>
+  <tfoot>
+    <tr>
+      <th><a href="list">Alle Lektionen</a></td>
+      <th>${unknown_items_count} (${Math.round(unknown_items_count / items_count * 100)}%)</th>
+      <th>${known_items_count} (${Math.round(known_items_count / items_count * 100)}%)</th>
+      <th>${well_known_items_count} (${Math.round(well_known_items_count / items_count * 100)}%)</th>
+      <th>${new_items_count} (${Math.round(new_items_count / items_count * 100)}%)</th>
+      <th>${items_count}</th>
+    </tr>
+    <tr>
+      <th>Wahrscheinlichkeiten beim Trainieren</td>
+      <td>${range.filter(a => a == "unknown").length} (${Math.round(range.filter(a => a == "unknown").length / range.length * 100)}%)</td>
+      <td>${range.filter(a => a == "known").length} (${Math.round(range.filter(a => a == "known").length / range.length * 100)}%)</td>
+      <td>${range.filter(a => a == "well-known").length} (${Math.round(range.filter(a => a == "well-known").length / range.length * 100)}%)</td>
+      <td>${range.filter(a => a == "new").length} (${Math.round(range.filter(a => a == "new").length / range.length * 100)}%)</td>
+      <td>${range.filter(a => a == "random").length} (${Math.round(range.filter(a => a == "random").length / range.length * 100)}%)</td>
+    </tr>
+  </tfoot>
+</table>`;
+        if ("lesson" in this.GET) {
+            let unknown_items = [];
+            let known_items = [];
+            let well_known_items = [];
+            let tried_items = [];
+            let new_items = [];
+            let items = await idb.get("vocabulary_sets", { lesson: this.GET.lesson });
+            items_count = items.length;
+            items.forEach(entry_set => {
+                if (entry_set.is_unknown) {
+                    unknown_items.push(entry_set);
+                }
+                else if (entry_set.is_known) {
+                    known_items.push(entry_set);
+                }
+                else if (entry_set.is_well_known) {
+                    well_known_items.push(entry_set);
+                }
+                if (entry_set.tries == 0) {
+                    new_items.push(entry_set);
+                }
+                else {
+                    tried_items.push(entry_set);
+                }
+            });
+            async function createTable(entry_sets, title) {
+                let entries = [];
+                let esi = 0;
+                let esl = entry_sets.length;
+                for (esi; esi < esl; esi++) {
+                    let entry_set_entries = await idb.get("vocabulary", { set_id: entry_sets[esi].id });
+                    let esei = 0;
+                    let esel = entry_set_entries.length;
+                    for (esei; esei < esel; esei++) {
+                        let entry = entry_set_entries[esei];
+                        entries.push(`
+    <tr>
+      <td lang="heb">${entry.hebrew}</td>
+      <td lang="und">${entry.transcription}</td>
+      <td lang="deu">${entry.german.join(" / ")}</td>
+      <td>${entry.hints_german.join(" / ")}</td>
+      <td>${entry.tries}${entry.fails ? ` <i>(-${entry.fails})</i>` : ""}</td>
+      <td>${entry_sets[esi].points}</td>
+    </tr>`);
+                    }
+                }
+                return `<table>
+  <caption>${title} (${entry_sets.length})</caption>
+  <thead>
+    <tr>
+      <th>Hebräisch</th>
+      <th>Lautschrift</th>
+      <th>Deutsch</th>
+      <th>Hinweise</th>
+      <th>Versuche</th>
+      <th>Punkte</th>
+    </tr>
+  </thead>
+  <tbody>` + entries.join("") + `
+  </tbody>
+</table>`;
+            }
+            main += `<h2>Übersicht: Lektion ${this.GET.lesson}</h2>`;
+            if (unknown_items.length > 0) {
+                main += await createTable(unknown_items, "Schwierige Wörter");
+            }
+            if (known_items.length > 0) {
+                main += await createTable(known_items, "Bekannte Wörter");
+            }
+            if (well_known_items.length > 0) {
+                main += await createTable(well_known_items, "Einfache Wörter");
+            }
+            if (new_items.length > 0) {
+                main += await createTable(new_items, "Untrainierte Wörter");
+            }
+        }
+        return await this.build({
+            page_title: "Vokabel-Trainer",
+            main
+        }, await this.files["layout.html"].text());
+    }
+});
 /// <reference no-default-lib="true" />
 /// <reference path="../config.ts" />
 server.registerRoute(Server.APP_SCOPE + "/manifest.webmanifest", {
@@ -2753,85 +3279,6 @@ server.registerRoute(Server.APP_SCOPE + "/manifest.webmanifest", {
     }
 });
 /// <reference no-default-lib="true" />
-/// <reference path="server/index.ts" />
-let idb = new IndexedDB("voc", 2, [{
-        name: "vocabulary",
-        keyPath: "key_id",
-        autoIncrement: true,
-        indices: [
-            { name: "by_id", keyPath: "id", multiEntry: false, unique: false },
-            { name: "by_lesson", keyPath: "lesson", multiEntry: false, unique: false },
-            { name: "by_german", keyPath: "german", multiEntry: true, unique: false },
-            { name: "by_hebrew", keyPath: "hebrew", multiEntry: false, unique: false },
-            { name: "by_points", keyPath: "points", multiEntry: false, unique: false },
-            { name: "by_tries", keyPath: "tries", multiEntry: false, unique: false },
-            { name: "by_fails", keyPath: "fails", multiEntry: false, unique: false },
-            { name: "is_well_known", keyPath: "is_well_known", multiEntry: false, unique: false },
-            { name: "is_known", keyPath: "is_known", multiEntry: false, unique: false },
-            { name: "is_unknown", keyPath: "is_unknown", multiEntry: false, unique: false }
-        ]
-    }, {
-        name: "lessons",
-        keyPath: "number",
-        autoIncrement: false,
-        indices: []
-    }]);
-async function update_lessons() {
-    let server_lessons = await server.apiFetch("get_lessons");
-    let local_lessons = (await idb.getAll("lessons")).map(a => a.number);
-    let new_lessons = server_lessons.filter(a => local_lessons.indexOf(a) < 0);
-    if (new_lessons.length > 0) {
-        await Promise.all(new_lessons.map(add_lesson));
-        return new_lessons.length;
-    }
-    return 0;
-}
-async function add_lesson(lesson) {
-    let lesson_text = await server.apiFetch("get_lesson", [lesson]);
-    if (lesson_text === false) {
-        return false;
-    }
-    await Promise.all(lesson_text.split("\n").map((line, id) => {
-        let entry = line.split("\t");
-        return idb.add("vocabulary", {
-            id: entry[0] + "-" + (id + 1),
-            lesson: Number(entry[0]),
-            german: (entry[1] || "").normalize("NFD").split("; "),
-            transcription: (entry[2] || "").normalize("NFD"),
-            hebrew: (entry[3] || "").normalize("NFD"),
-            hints_german: (entry[4] || "").normalize("NFD").split("; "),
-            hints_hebrew: (entry[4] || "").normalize("NFD").split("; ").map(hint => {
-                switch (hint) {
-                    case "m.Sg.":
-                        return "ז'";
-                    case "f.Sg.":
-                        return "נ'";
-                    case "m.Pl.":
-                        return "ז\"ר";
-                    case "f.Pl.":
-                        return "נ\"ר";
-                    case "ugs.":
-                        return "ס'";
-                    default:
-                        return hint;
-                }
-            }),
-            tries: 0
-        });
-    }));
-    await idb.add("lessons", {
-        name: "Lesson " + lesson,
-        number: Number(lesson)
-    });
-    return true;
-}
-server.addEventListener("ping", event => {
-    event.data.await(update_lessons());
-});
-server.addEventListener("beforestart", event => {
-    event.data.await(idb.ready);
-});
-/// <reference no-default-lib="true" />
 /// <reference path="../main.ts" />
 server.registerRoute(Server.APP_SCOPE + "/train", {
     files: {
@@ -2858,27 +3305,38 @@ server.registerRoute(Server.APP_SCOPE + "/train", {
                 if (this.GET.known == -1) {
                     entry.fails = (entry.fails || 0) + 1;
                 }
-                entry.points = (entry.points || 0) + Number(this.GET.known) - Number(this.GET.hints_used) * 0.5;
-                delete entry.is_well_known;
-                delete entry.is_known;
-                delete entry.is_unknown;
-                if (entry.points > 20) {
-                    entry.is_well_known = true;
+                await idb.put("vocabulary", entry);
+                let entries = await idb.get("vocabulary", { set_id: entry.set_id });
+                let entry_set = (await idb.get("vocabulary_sets", { id: entry.set_id }))[0];
+                entry_set.points = (entry_set.points || 0) + Number(this.GET.known) - Number(this.GET.hints_used) * 0.5;
+                entry_set.tries++;
+                delete entry_set.is_well_known;
+                delete entry_set.is_known;
+                delete entry_set.is_unknown;
+                if (entry_set.points > 5) {
+                    entry_set.is_well_known = 1;
                 }
-                else if (entry.points > 0) {
-                    entry.is_known = true;
+                else if (entry_set.points > 0) {
+                    entry_set.is_known = 1;
                 }
-                else if (entry.points < 0) {
-                    entry.is_unknown = true;
+                else if (entry_set.points < 0) {
+                    entry_set.is_unknown = 1;
                 }
-                idb.put("vocabulary", entry);
+                await idb.put("vocabulary_sets", entry_set);
+                await Promise.all(entries.map(async (entry) => {
+                    if (entry_set.points > 20) {
+                        delete entry.fails;
+                    }
+                    await idb.put("vocabulary", entry);
+                }));
             }
         }
-        let unknown_items_count = await idb.index("vocabulary", "is_unknown").count();
-        let well_known_items_count = await idb.index("vocabulary", "is_well_known").count();
-        let known_items_count = await idb.index("vocabulary", "is_known").count();
-        let tried_items_count = await idb.index("vocabulary", "by_tries").count();
-        let new_items_count = await idb.count("vocabulary") - tried_items_count;
+        let unknown_items_count = await idb.index("vocabulary_sets", "is_unknown").count();
+        let well_known_items_count = await idb.index("vocabulary_sets", "is_well_known").count();
+        let known_items_count = await idb.index("vocabulary_sets", "is_known").count();
+        let items_count = await idb.count("vocabulary_sets");
+        let tried_items_count = known_items_count + unknown_items_count + well_known_items_count;
+        let new_items_count = items_count - tried_items_count;
         let range = [];
         if (unknown_items_count > 20) {
             range.push(...Array(45).fill("unknown"));
@@ -2899,42 +3357,44 @@ server.registerRoute(Server.APP_SCOPE + "/train", {
             range.push(...Array(15).fill("known"));
         }
         let range_length = range.length;
-        if (range_length < 75 && well_known_items_count >= 25) {
+        if (well_known_items_count >= 25) {
             range.push(...Array(25).fill("well-known"));
         }
-        else if (range_length < 100 && well_known_items_count > 0) {
-            range.push(...Array(100 - range_length).fill("well-known"));
+        else {
+            range.push(...Array(well_known_items_count).fill("well-known"));
         }
         range_length = range.length;
+        if (new_items_count > 0) {
+            range.push(...Array(25).fill("new"));
+        }
+        range.push(...Array(25).fill("random"));
         if (range_length < 100) {
-            range.push(...Array(100 - range_length).fill(new_items_count > 0 ? "new" : "random"));
+            range.push(...Array(100 - range_length).fill("random"));
         }
         let item = null;
         let index = rndInt(0, range.length - 1);
         let entry = null;
-        let array = null;
+        let entries = null;
+        let entry_sets = null;
         switch (range[index]) {
             case "known":
-                array = await idb.index("vocabulary", "is_known").getAll();
-                entry = array[rndInt(0, array.length - 1)];
+                entry_sets = await idb.index("vocabulary_sets", "is_known").get();
                 break;
             case "new":
-                array = await idb.get("vocabulary", { tries: 0 });
-                entry = array[0];
+                entry_sets = await idb.get("vocabulary_sets", { tries: 0 });
                 break;
             case "random":
-                array = await idb.getAll("vocabulary");
-                entry = array[rndInt(0, array.length - 1)];
+                entry_sets = await idb.get("vocabulary_sets");
                 break;
             case "unknown":
-                array = await idb.index("vocabulary", "is_unknown").getAll();
-                entry = array[rndInt(0, array.length - 1)];
+                entry_sets = await idb.index("vocabulary_sets", "is_unknown").get();
                 break;
             case "well-known":
-                array = await idb.index("vocabulary", "is_well_known").getAll();
-                entry = array[rndInt(0, array.length - 1)];
+                entry_sets = await idb.index("vocabulary_sets", "is_well_known").get();
                 break;
         }
+        entries = await idb.get("vocabulary", { set_id: entry_sets[rndInt(0, entry_sets.length - 1)].id });
+        entry = entries[rndInt(0, entries.length - 1)];
         if (entry) {
             item = {
                 id: entry.id,
@@ -2945,7 +3405,7 @@ server.registerRoute(Server.APP_SCOPE + "/train", {
                 hint_lesson: entry.lesson.toString(),
                 hint_transcription: entry.transcription,
                 hint_tries: entry.tries,
-                hint_points: entry.points || 0
+                hint_points: (await idb.get("vocabulary_sets", { id: entry.set_id }))[0].points
             };
         }
         else {

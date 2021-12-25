@@ -2,41 +2,68 @@
 /// <reference path="server/index.ts" />
 
 let idb = new IndexedDB<{
-  vocabulary: Entry;
+  vocabulary: {
+    Records: Entry;
+    Indices: "by_lesson" | "by_german" | "by_hebrew" | "by_tries" | "by_points" | "by_fails" | "is_well_known" | "is_known" | "is_unknown";
+  };
   lessons: {
-    name: string;
-    number: number;
+    Records: {
+      name: string;
+      number: number;
+    };
+    Indices: null;
+  };
+  vocabulary_sets: {
+    Records: EntrySet;
+    Indices: "by_points" | "is_well_known" | "is_known" | "is_unknown";
+  };
+}>("voc", 2, {
+  vocabulary: {
+    name: "vocabulary",
+    keyPath: "id",
+    autoIncrement: false,
+    indices: [
+      { name: "by_lesson", keyPath: "lesson", multiEntry: false, unique: false },
+      { name: "by_german", keyPath: "german", multiEntry: true, unique: false },
+      { name: "by_hebrew", keyPath: "hebrew", multiEntry: false, unique: false },
+      { name: "by_tries", keyPath: "tries", multiEntry: false, unique: false },
+      { name: "by_points", keyPath: "points", multiEntry: false, unique: false },
+      { name: "by_fails", keyPath: "fails", multiEntry: false, unique: false },
+      { name: "is_well_known", keyPath: "is_well_known", multiEntry: false, unique: false },
+      { name: "is_known", keyPath: "is_known", multiEntry: false, unique: false },
+      { name: "is_unknown", keyPath: "is_unknown", multiEntry: false, unique: false }
+    ]
+  },
+  lessons: {
+    name: "lessons",
+    keyPath: "number",
+    autoIncrement: false,
+    indices: []
+  },
+  vocabulary_sets: {
+    name: "vocabulary_sets",
+    keyPath: "id",
+    autoIncrement: false,
+    indices: [
+      { name: "by_points", keyPath: "points", multiEntry: false, unique: false },
+      { name: "is_well_known", keyPath: "is_well_known", multiEntry: false, unique: false },
+      { name: "is_known", keyPath: "is_known", multiEntry: false, unique: false },
+      { name: "is_unknown", keyPath: "is_unknown", multiEntry: false, unique: false }
+    ]
   }
-}, "by_id" | "by_lesson" | "by_german" | "by_hebrew" | "by_points" | "by_tries" | "by_fails" | "is_well_known" | "is_known" | "is_unknown">("voc", 2, [{
-  name: "vocabulary",
-  keyPath: "key_id",
-  autoIncrement: true,
-  indices: [
-    { name: "by_id", keyPath: "id", multiEntry: false, unique: false },
-    { name: "by_lesson", keyPath: "lesson", multiEntry: false, unique: false },
-    { name: "by_german", keyPath: "german", multiEntry: true, unique: false },
-    { name: "by_hebrew", keyPath: "hebrew", multiEntry: false, unique: false },
-    { name: "by_points", keyPath: "points", multiEntry: false, unique: false },
-    { name: "by_tries", keyPath: "tries", multiEntry: false, unique: false },
-    { name: "by_fails", keyPath: "fails", multiEntry: false, unique: false },
-    { name: "is_well_known", keyPath: "is_well_known", multiEntry: false, unique: false },
-    { name: "is_known", keyPath: "is_known", multiEntry: false, unique: false },
-    { name: "is_unknown", keyPath: "is_unknown", multiEntry: false, unique: false }
-  ]
-}, {
-  name: "lessons",
-  keyPath: "number",
-  autoIncrement: false,
-  indices: []
-}]);
+});
 
 async function update_lessons(): Promise<number> {
   let server_lessons = await server.apiFetch("get_lessons");
-  let local_lessons = (await idb.getAll("lessons")).map(a => a.number);
+  let local_lessons = (await idb.get("lessons")).map(a => a.number);
   let new_lessons = server_lessons.filter(a => local_lessons.indexOf(a) < 0);
   if (new_lessons.length > 0) {
-    await Promise.all(new_lessons.map(add_lesson));
-    return new_lessons.length;
+    let i = 0;
+    let l = new_lessons.length;
+    for (i; i < l; i++) {
+      await add_lesson(new_lessons[i]);
+    }
+    return l;
   }
   return 0;
 }
@@ -46,34 +73,60 @@ async function add_lesson(lesson: string | number): Promise<boolean> {
   if (lesson_text === false) {
     return false;
   }
-  await Promise.all(lesson_text.split("\n").map((line, id) => {
-    let entry = line.split("\t");
-    return idb.add("vocabulary", <Entry>{
-      id: entry[0] + "-" + (id + 1),
-      lesson: Number(entry[0]),
-      german: (entry[1] || "").normalize("NFD").split("; "),
-      transcription: (entry[2] || "").normalize("NFD"),
-      hebrew: (entry[3] || "").normalize("NFD"),
-      hints_german: (entry[4] || "").normalize("NFD").split("; "),
-      hints_hebrew: (entry[4] || "").normalize("NFD").split("; ").map(hint => {
-        switch (hint) {
-          case "m.Sg.":
-            return "ז'";
-          case "f.Sg.":
-            return "נ'";
-          case "m.Pl.":
-            return "ז\"ר";
-          case "f.Pl.":
-            return "נ\"ר";
-          case "ugs.":
-            return "ס'";
-          default:
-            return hint;
-        }
-      }),
-      tries: 0
+  let sets: Set<string> = new Set();
+  if ((await idb.count("vocabulary_sets")) > 0) {
+    (await idb.get("vocabulary_sets")).forEach(set => {
+      sets.add(set.id);
     });
-  }));
+  }
+  await Promise.all(
+    lesson_text.replace(/\r/g, "").split("\n").map(
+      async line => {
+        let entry = <LessonFileLine>line.split("\t");
+        if (entry.length < 8) {
+          return false;
+        }
+        if (!sets.has(entry[2] + "-" + entry[3])) {
+          sets.add(entry[2] + "-" + entry[3]);
+          await idb.add("vocabulary_sets", {
+            id: entry[2] + "-" + entry[3],
+            lesson: Number(entry[2]),
+            points: 0,
+            tries: 0
+          });
+        }
+        await idb.add("vocabulary", <Entry>{
+          lesson: Number(entry[0]),
+          id: entry[0] + "-" + entry[1],
+          set_id: entry[2] + "-" + entry[3],
+
+          german: (entry[4] || "").normalize("NFD").split("; "),
+          transcription: (entry[5] || "").normalize("NFD"),
+          hebrew: (entry[6] || "").normalize("NFD"),
+          hints_german: (entry[7] || "").normalize("NFD").split("; "),
+          hints_hebrew: (entry[7] || "").normalize("NFD").split("; ").map(
+            hint => {
+              switch (hint) {
+                case "m.Sg.":
+                  return "ז'";
+                case "f.Sg.":
+                  return "נ'";
+                case "m.Pl.":
+                  return "ז\"ר";
+                case "f.Pl.":
+                  return "נ\"ר";
+                case "ugs.":
+                  return "\u05e1'";
+                default:
+                  return hint;
+              }
+            }
+          ),
+          tries: 0
+        });
+      }
+    )
+  );
   await idb.add("lessons", {
     name: "Lesson " + lesson,
     number: Number(lesson)
@@ -82,20 +135,48 @@ async function add_lesson(lesson: string | number): Promise<boolean> {
 }
 
 interface Entry {
-  key_id: number;
   id: string;
+  set_id: string;
   lesson: number;
   german: string[];
   transcription: string;
   hebrew: string;
   hints_german: string[];
   hints_hebrew: string[];
-  points?: number;
   tries: number;
   fails?: number;
-  is_well_known?: boolean;
-  is_known?: boolean;
-  is_unknown?: boolean;
+  is_well_known?: 1;
+  is_known?: 1;
+  is_unknown?: 1;
+}
+
+interface EntrySet {
+  id: string;
+  lesson: number;
+  points: number;
+  tries: number;
+  is_well_known?: 1;
+  is_known?: 1;
+  is_unknown?: 1;
+}
+
+interface LessonFileLine extends Array<string> {
+  /** Current Lesson */
+  0: string;
+  /** Current Word in Lesson */
+  1: string;
+  /** Linked Lesson */
+  2: string;
+  /** Linked Word in Linked Lesson */
+  3: string;
+  /** German[] */
+  4: string;
+  /** Transcription */
+  5: string;
+  /** Hebrew */
+  6: string;
+  /** Hint */
+  7: string;
 }
 
 interface APIFunctions {
