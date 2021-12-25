@@ -1,8 +1,13 @@
-Erstelle eine User-Tabelle, in der folgendes verzeichnet wird:
-1. Login-Daten
-2. Default-Konto-Values
-3. Name der zu benutzenden Tabelle
+# SWS (ServiceWorkerServer)
 
-Erstelle des Weiteren automatisch für jede:n Nutzer:in eine neue Invoice-Tabelle, aus der die Daten gefetched werden.
+## To do
 
-Modifiziere die API entsprechend.
+- apiFetch-Plugin soll eine Extension sein, die optional mit eingebunden werden kann, aber nicht muss.
+- login-Plugin soll eine Extension sein, die optional mit eingebunden werden kann, aber nicht muss.
+- login-Plugin soll auf apiFetch-Plugin aufbauen, benötigt diese also zwingend.
+- Erstelle einen Ordner "plugins", in dem die Extensions abgelegt sind.
+- Modifiziere tsconfig.json so, dass nur die /server/index.ts als Source-Datei genommen wird. Alles andere soll als Dependenzien dann automatisch eingebunden werden.
+- Erstelle eine Offline-Login-Plugin, die einfach nur eine lokale Benutzerverwaltung ist. Diese Offline-Login-Plugin darf nicht mit der login-API gleichzeitig verwendet werden.
+- Erstelle ein Backend-Plugin, mit dem der ServiceWorkerServer verwaltet werden kann:
+  - Versuche eine ServiceWorker.js-Datei entweder so einzubinden, dass sie durch den lokalen Cache geupdated werden kann.
+  - Oder versuche die ServiceWorker.js-Datei so zu formulieren, dass sie aus der Datenbank Einträge und Routes lesen kann.
