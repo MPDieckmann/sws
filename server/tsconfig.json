@@ -1,15 +1,16 @@
 {
   "compilerOptions": {
     "module": "None",
-    "moduleResolution": "node",
+    "moduleResolution": "classic",
     "target": "ESNext",
     "outFile": "../serviceworker.js",
     "sourceMap": true,
     "allowJs": false
   },
   "include": [
-    "./ts/routes/*.ts",
-    "ts/config.ts"
+    "./ts/server/*.ts",
+    "ts/index.ts",
+    "./ts/routes/*.ts"
   ],
   "exclude": [
     "**/node_modules",

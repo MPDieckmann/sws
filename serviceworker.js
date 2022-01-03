@@ -1,79 +1,5 @@
 /// <reference no-default-lib="true" />
 /// <reference path="index.ts" />
-class CacheResponse {
-    [Symbol.toStringTag] = "CacheResponse";
-    #response = null;
-    #arrayBuffer;
-    #blob;
-    #formData;
-    #json;
-    #text;
-    #url;
-    constructor(url) {
-        this.#url = url;
-    }
-    get url() {
-        return this.#url;
-    }
-    async #getResponse() {
-        if (this.#response == null) {
-            this.#response = await server.fetch(this.url) || new Response(null, {
-                status: 404,
-                statusText: "File not cached: " + this.url
-            });
-        }
-    }
-    async arrayBuffer() {
-        if (this.#response == null) {
-            await this.#getResponse();
-        }
-        if (!this.#arrayBuffer) {
-            this.#arrayBuffer = await this.#response.arrayBuffer();
-        }
-        return this.#arrayBuffer;
-    }
-    async blob() {
-        if (this.#response == null) {
-            await this.#getResponse();
-        }
-        if (!this.#blob) {
-            this.#blob = await this.#response.blob();
-        }
-        return this.#blob;
-    }
-    async formData() {
-        if (this.#response == null) {
-            await this.#getResponse();
-        }
-        if (!this.#formData) {
-            this.#formData = await this.#response.formData();
-        }
-        return this.#formData;
-    }
-    async json() {
-        if (this.#response == null) {
-            await this.#getResponse();
-        }
-        if (!this.#json) {
-            this.#json = await this.#response.json();
-        }
-        return this.#json;
-    }
-    async text() {
-        if (this.#response == null) {
-            await this.#getResponse();
-        }
-        if (!this.#text) {
-            this.#text = await this.#response.text();
-        }
-        return this.#text;
-    }
-    clone() {
-        return new CacheResponse(this.#url);
-    }
-}
-/// <reference no-default-lib="true" />
-/// <reference path="index.ts" />
 class IndexedDB extends EventTarget {
     [Symbol.toStringTag] = "IndexedDB";
     static STATE_CLOSED = 0;
@@ -2382,6 +2308,80 @@ function date(string, timestamp = new Date) {
 // const DEBUG_MODE = "online";
 const server = new Server();
 /// <reference no-default-lib="true" />
+/// <reference path="index.ts" />
+class CacheResponse {
+    [Symbol.toStringTag] = "CacheResponse";
+    #response = null;
+    #arrayBuffer;
+    #blob;
+    #formData;
+    #json;
+    #text;
+    #url;
+    constructor(url) {
+        this.#url = url;
+    }
+    get url() {
+        return this.#url;
+    }
+    async #getResponse() {
+        if (this.#response == null) {
+            this.#response = await server.fetch(this.url) || new Response(null, {
+                status: 404,
+                statusText: "File not cached: " + this.url
+            });
+        }
+    }
+    async arrayBuffer() {
+        if (this.#response == null) {
+            await this.#getResponse();
+        }
+        if (!this.#arrayBuffer) {
+            this.#arrayBuffer = await this.#response.arrayBuffer();
+        }
+        return this.#arrayBuffer;
+    }
+    async blob() {
+        if (this.#response == null) {
+            await this.#getResponse();
+        }
+        if (!this.#blob) {
+            this.#blob = await this.#response.blob();
+        }
+        return this.#blob;
+    }
+    async formData() {
+        if (this.#response == null) {
+            await this.#getResponse();
+        }
+        if (!this.#formData) {
+            this.#formData = await this.#response.formData();
+        }
+        return this.#formData;
+    }
+    async json() {
+        if (this.#response == null) {
+            await this.#getResponse();
+        }
+        if (!this.#json) {
+            this.#json = await this.#response.json();
+        }
+        return this.#json;
+    }
+    async text() {
+        if (this.#response == null) {
+            await this.#getResponse();
+        }
+        if (!this.#text) {
+            this.#text = await this.#response.text();
+        }
+        return this.#text;
+    }
+    clone() {
+        return new CacheResponse(this.#url);
+    }
+}
+/// <reference no-default-lib="true" />
 /// <reference path="server/index.ts" />
 // server.setSetting("site-title", "ServiceWorkerServer");
 // server.setSetting("theme-color", "#000000");
@@ -2390,6 +2390,8 @@ server.setSetting("copyright", "\u00a9 " + new Date().getFullYear() + " MPDieckm
 // server.setSetting("access-token", "default-access");
 // server.setSetting("id", "default");
 server.start();
+/// <reference no-default-lib="true" />
+/// <reference path="config.ts" />
 /// <reference no-default-lib="true" />
 /// <reference path="../server/server.ts" />
 class Scope {
