@@ -11,3 +11,5 @@
 - Erstelle ein Backend-Plugin, mit dem der ServiceWorkerServer verwaltet werden kann:
   - Versuche eine ServiceWorker.js-Datei entweder so einzubinden, dass sie durch den lokalen Cache geupdated werden kann.
   - Oder versuche die ServiceWorker.js-Datei so zu formulieren, dass sie aus der Datenbank Einträge und Routes lesen kann.
+
+- Beim Starten des SWS wird aus der Datenbank oder dem Cache (am besten Cache) eine Manifest-Datei gelesen, die angibt, welche Scripte aus dem Cache geladen werden sollen, die den entsprechenden Code (sprich Routes nachlädt). Dies muss nach jeder activate-Step gemacht werden.

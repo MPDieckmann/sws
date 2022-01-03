@@ -17,7 +17,7 @@ class CacheResponse {
     }
     async #getResponse() {
         if (this.#response == null) {
-            this.#response = await caches.match(this.url) || new Response(null, {
+            this.#response = await server.fetch(this.url) || new Response(null, {
                 status: 404,
                 statusText: "File not cached: " + this.url
             });
@@ -1145,46 +1145,26 @@ class ServerEvent extends Event {
 /// <reference path="index.ts" />
 class Server extends EventTarget {
     [Symbol.toStringTag] = "Server";
-    static APP_SCOPE = registration.scope.replace(/\/$/, "");
-    static API_URL = Server.APP_SCOPE + "/api.php";
-    static API_VERSION = 2;
-    static MPC_CACHE_NAME = "MPC-Server-Cache";
-    static server;
-    static ICON_SIZES = [
-        "48x48",
-        "72x72",
-        "96x96",
-        "144x144",
-        "192x192",
-        "512x512"
-    ];
-    static ICON_PURPOSES = [
-        "any",
-        "maskable",
-        "monochrome"
-    ];
-    static get VERSION() {
-        return (this.server && this.server.#VERSION) || "Fehler: Der ServiceWorker wurde noch nicht initialisiert!";
-    }
-    #routes = new Map();
-    APP_SCOPE = Server.APP_SCOPE;
-    API_URL = Server.API_URL;
-    API_VERSION = Server.API_VERSION;
-    MPC_CACHE_NAME = Server.MPC_CACHE_NAME;
-    ready;
-    #pinging = false;
-    #connected = false;
-    // #online: boolean = typeof DEBUG_MODE == "string" ? DEBUG_MODE == "online" : navigator.onLine;
+    static server = new Server();
+    #version;
+    #cacheName = "ServerCache-20211226";
+    #scope = registration.scope.replace(/\/$/, "");
+    #regex_safe_scope = registration.scope.escape(String.ESCAPE_REGEXP, "\\");
     #online = navigator.onLine;
-    #VERSION;
-    #settings = new Map();
-    #start;
     #idb = new IndexedDB("Server", 1, {
         settings: {
             name: "settings",
             autoIncrement: false,
             keyPath: "key",
             indices: []
+        },
+        routes: {
+            name: "routes",
+            autoIncrement: false,
+            keyPath: "path",
+            indices: [
+                { name: "by_priority", keyPath: "priority", multiEntry: false, unique: false }
+            ]
         },
         log: {
             name: "log",
@@ -1193,41 +1173,79 @@ class Server extends EventTarget {
             indices: [
                 { name: "by_type", keyPath: "type", multiEntry: false, unique: false }
             ]
+        },
+        assets: {
+            name: "assets",
+            keyPath: "id",
+            autoIncrement: false,
+            indices: []
         }
     });
-    get version() { return this.#VERSION; }
-    get pinging() { return this.#pinging; }
-    get server_online() { return this.getSetting("offline-mode") ? false : this.#connected; }
-    get network_online() { return this.#online; }
+    get version() {
+        return this.#version;
+    }
+    get scope() {
+        return this.#scope;
+    }
+    get regex_safe_scope() {
+        return this.#regex_safe_scope;
+    }
+    get online() {
+        return this.#online;
+    }
+    ready;
+    #start;
     constructor() {
         super();
         if (Server.server) {
             return Server.server;
         }
-        // @ts-ignore
-        Server.server = this;
+        this.#settingsListenerMap.set("offline-mode", (old_value, new_value) => {
+            if (old_value == new_value) {
+                return;
+            }
+            if (new_value) {
+                if (this.#online) {
+                    this.#online = false;
+                    this.dispatchEvent(new ServerEvent("offline", { cancelable: false, group: "network", data: null }));
+                }
+            }
+            else {
+                if (navigator.onLine != this.#online) {
+                    this.#online = navigator.onLine;
+                    this.dispatchEvent(new ServerEvent(this.#online ? "online" : "offline", { cancelable: false, group: "network", data: null }));
+                }
+            }
+        });
+        navigator.connection.addEventListener("change", () => {
+            if (!this.getSetting("offline-mode") &&
+                navigator.onLine != this.#online) {
+                this.#online = navigator.onLine;
+                this.dispatchEvent(new ServerEvent(this.#online ? "online" : "offline", { cancelable: false, group: "network", data: null }));
+            }
+        });
         addEventListener("install", event => event.waitUntil(this.install()));
         addEventListener("message", event => event.waitUntil(this.message(event.data, event.source)));
         addEventListener("activate", event => event.waitUntil(this.activate()));
         addEventListener("fetch", event => event.respondWith(this.fetch(event.request)));
-        navigator.connection.addEventListener("change", () => {
-            // this.#online = typeof DEBUG_MODE == "string" ? DEBUG_MODE == "online" : navigator.onLine;
-            this.#online = navigator.onLine;
-            if (this.#online) {
-                this.#connected = true;
-                if (this.#pinging) {
-                    this.awaitEventListener(this, "afterping").then(() => this.ping());
-                }
-                else {
-                    this.ping();
-                }
-            }
-        });
         let _resolve;
         this.#start = new Promise(resolve => _resolve = resolve);
         this.#start.resolve = _resolve;
-        this.registerRoute(Server.APP_SCOPE + "/serviceworker.js", "cache");
         this.ready = (async () => {
+            await Promise.all((await this.#idb.get("settings")).map(async (record) => {
+                this.#settings.set(record.key, record.value);
+                if (this.#settingsListenerMap.has(record.key)) {
+                    await this.#settingsListenerMap.get(record.key)(record.value, record.value);
+                }
+            }));
+            await this.#idb.put("routes", {
+                priority: 0,
+                type: "string",
+                string: this.#scope + "/serviceworker.js",
+                ignoreCase: true,
+                storage: "cache",
+                key: this.#scope + "/serviceworker.js"
+            });
             let promises = [];
             this.dispatchEvent(new ServerEvent("beforestart", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
             await Promise.all(promises);
@@ -1237,54 +1255,28 @@ class Server extends EventTarget {
             await Promise.all(promises);
             return this;
         })();
-        this.#idb.get("settings").then(values => {
-            values.forEach(record => {
-                this.#settings.set(record.key, record.value);
-            });
-        });
     }
-    async #log(type, message, stack) {
-        await this.#idb.put("log", {
-            timestamp: Date.now(),
-            type,
-            message,
-            stack
-        });
-    }
-    async log(message, stack = null) {
-        console.log(message, stack);
-        await this.#log("log", message, stack);
-    }
-    async warn(message, stack = null) {
-        console.warn(message, stack);
-        await this.#log("warn", message, stack);
-    }
-    async error(message, stack = null) {
-        console.error(message, stack);
-        await this.#log("error", message, stack);
-    }
-    async clear_log() {
-        await this.#idb.delete("log");
-        this.#log("clear", "Das Protokoll wurde erfolgreich gelöscht", null);
-        console.clear();
-    }
-    async get_log(types = {
-        log: true,
-        warn: true,
-        error: true
-    }) {
-        if (types.log && types.warn && types.error) {
-            return this.#idb.get("log");
+    #loadedScripts = new Map([
+        [null, null]
+    ]);
+    async #loadScript(id) {
+        if (!this.#loadedScripts.has(id)) {
+            let assets = await this.#idb.get("assets", { id });
+            if (assets.length > 0) {
+                let blob = assets[0].blob;
+                if (/(text|application)\/javascript/.test(blob.type)) {
+                    let result = await eval.call(self, await blob.text());
+                    this.#loadedScripts.set(id, result);
+                }
+                else {
+                    throw new DOMException(`Failed to load script: ${id}\nScripts mime type is not supported.`, `UnsupportedMimeType`);
+                }
+            }
+            else {
+                throw new DOMException(`Failed to load script: ${id}\nScript not found.`, `FileNotFound`);
+            }
         }
-        else {
-            let type_array = [];
-            types.log && type_array.push("log");
-            types.warn && type_array.push("warn");
-            types.error && type_array.push("error");
-            return this.#idb.get("log", {
-                type: new RegExp("^(" + type_array.join("|") + ")$")
-            });
-        }
+        return this.#loadedScripts.get(id);
     }
     async install() {
         // console.log("server called 'install'", { server, routes: this.#routes });
@@ -1311,22 +1303,19 @@ class Server extends EventTarget {
         await Promise.all(promises);
         promises.splice(0, promises.length);
         try {
-            await caches.delete(this.MPC_CACHE_NAME);
+            await caches.delete(this.#cacheName);
             this.log("Cache erfolgreich gelöscht");
-            let cache = await caches.open(this.MPC_CACHE_NAME);
-            await Promise.all(Array.from(this.#routes).map(([pathname, value]) => {
-                if (value == "cache") {
-                    return cache.add(pathname);
-                }
-            }));
+            let cache = await caches.open(this.#cacheName);
+            await Promise.all((await this.#idb.get("routes", { storage: "cache" })).map((route) => cache.add(route.key)));
+            this.warn("Caching files not implemented yet!");
             this.log("Dateien erfolgreich in den Cache geladen");
             this.dispatchEvent(new ServerEvent("afterupdate", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
             await Promise.all(promises);
-            return "Update erfolgreich abgeschlossen!";
+            return true;
         }
         catch (e) {
             this.error(e.message, e.stack);
-            return "Update fehlgeschlagen!";
+            return false;
         }
     }
     async activate() {
@@ -1335,16 +1324,23 @@ class Server extends EventTarget {
         this.dispatchEvent(new ServerEvent("beforeactivate", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
         await Promise.all(promises);
         promises.splice(0, promises.length);
-        let response = await (await caches.open(this.MPC_CACHE_NAME)).match(Server.APP_SCOPE + "/serviceworker.js");
-        this.#VERSION = response ? date("Y.md.Hi", response.headers.get("Date")) : "ServiceWorker is broken.";
+        let response = await (await caches.open(this.#cacheName)).match(this.#scope + "/serviceworker.js");
+        this.#version = response ? date("Y.md.Hi", response.headers.get("Date")) : "ServiceWorker is broken.";
         await this.ready;
         this.dispatchEvent(new ServerEvent("activate", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
         await Promise.all(promises);
         promises.splice(0, promises.length);
         await clients.claim();
-        this.log("Serviceworker erfolgreich aktiviert (Version: " + this.#VERSION + ")");
+        this.log("Serviceworker erfolgreich aktiviert (Version: " + this.#version + ")");
         this.dispatchEvent(new ServerEvent("afteractivate", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
         await Promise.all(promises);
+    }
+    async start() {
+        // console.log("server called 'start'", { server, routes: this.#routes });
+        let promises = [];
+        this.dispatchEvent(new ServerEvent("start", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
+        await Promise.all(promises);
+        this.#start.resolve(null);
     }
     async fetch(input, init) {
         // console.log("server called 'fetch'", { server, routes: this.#routes, arguments });
@@ -1362,74 +1358,98 @@ class Server extends EventTarget {
             return response;
         }
         try {
-            if (!this.getSetting("offline-mode")) {
-                if (request.url == this.API_URL) {
-                    response = await globalThis.fetch(request);
-                    this.dispatchEvent(new ServerEvent("afterfetch", { cancelable: false, group: "fetch", data: { url: typeof input == "string" ? input : input.url, request, response, respondWith(r) { respondWithResponse = r; } } }));
-                    respondWithResponse && (response = (await respondWithResponse).clone());
-                    return response;
-                }
-                await this.ping();
+            let routes = await this.#idb.get("routes", async (route) => ((route.type == "string" && ((route.ignoreCase && route.string.toLowerCase() == request.url.replace(/^([^\?\#]*)[\?\#].*$/, "$1").toLowerCase()) ||
+                (!route.ignoreCase && route.string == request.url.replace(/^([^\?\#]*)[\?\#].*$/, "$1")))) || (route.type == "regexp" && route.regexp.test(request.url.replace(/^([^\?\#]*)[\?\#].*$/, "$1")))));
+            if (routes.length < 0) {
+                throw "File not cached: " + request.url;
             }
-            let route = this.#routes.get(request.url.replace(/^([^\?\#]*)[\?\#].*$/, "$1"));
-            if (typeof route == "string") {
-                let cache = await caches.open(this.MPC_CACHE_NAME);
-                response = await cache.match(request.url.replace(/^([^\?\#]*)[\?\#].*$/, "$1"));
-                if (!response) {
-                    console.error(request);
-                    throw "File not cached: " + request.url;
+            response = null;
+            let index = routes.length;
+            let hasError = false;
+            while (response === null &&
+                index >= 0) {
+                index--;
+                let route = routes[index];
+                if (route.storage == "cache") {
+                    response = await (await caches.open(this.#cacheName)).match(route.key);
+                    if (!response) {
+                        this.error(`File not cached: '${request.url}'`, `Redirected to cache: '${route.key}'.`);
+                        hasError = true;
+                        response = null;
+                    }
+                }
+                else if (route.storage == "static") {
+                    let assets = await this.#idb.get("assets", { id: route.key });
+                    if (assets.length > 0) {
+                        response = new Response(assets[0].blob);
+                    }
+                    else {
+                        this.error(`File not stored: '${request.url}'`, `Redirected to indexedDB: '${route.key}'.`);
+                        hasError = true;
+                    }
+                }
+                else if (route.storage == "dynamic") {
+                    await this.#loadScript(route.script).catch((e) => {
+                        this.error(e.message, e.stack);
+                        hasError = true;
+                    });
+                    if (this.#responseFunctions.has(route.function)) {
+                        try {
+                            response = await this.#responseFunctions.get(route.function)(request, route.arguments);
+                        }
+                        catch (error) {
+                            this.error(error);
+                            hasError = true;
+                            response = null;
+                        }
+                        ;
+                    }
+                    else {
+                        this.error(`Failed to execute response function for '${request.url}'`, `Redirected to function '${route.function}' in script '${route.script}'.`);
+                        hasError = true;
+                    }
+                }
+                else {
+                    this.error(`Unknown storage type: '${route.storage}'`);
+                    hasError = true;
                 }
             }
-            else if (typeof route == "object") {
-                if (typeof route.response == "function") {
-                    let scope = await new Scope(request, route).ready;
-                    let rtn = await route.response.call(scope, scope);
-                    response = (typeof rtn == "object" && rtn instanceof Response) ? rtn : new Response(rtn, {
-                        headers: scope.headers,
-                        status: scope.status,
-                        statusText: scope.statusText
+            if (response) {
+                if (hasError) {
+                    let route = routes[index];
+                    if (route.storage == "dynamic") {
+                        this.log(`File served with function`, `Redirected to function '${route.function}' in script '${route.script}'.`);
+                    }
+                    else {
+                        this.log(`File served as ${route.storage}`, `Redirected to ${route.storage == "cache" ? "cache" : "indexedDB"}: '${route.key}'.`);
+                    }
+                }
+            }
+            else {
+                if (hasError) {
+                    response = await this.errorResponse("See log for more info", {
+                        status: 500,
+                        statusText: "Internal ServiceWorker Error"
                     });
                 }
                 else {
-                    let rtn = await route.response;
-                    response = (typeof rtn == "object" && rtn instanceof Response) ? rtn : new Response(rtn);
+                    response = await this.errorResponse("See log for more info", {
+                        status: 404,
+                        statusText: "File not found."
+                    });
                 }
-            }
-            else {
-                throw "File not cached: " + request.url;
             }
         }
         catch (error) {
-            if (error && error.message) {
-                this.error(error.message, error.stack);
-            }
-            else {
-                this.error(error);
-            }
-            response = new Response(await this.generate_error(new Scope(request, {
-                response: "Error 500: Internal ServiceWorker Error"
-            }), {
-                message: typeof error == "string" ? error : error.message,
-                stack: typeof error == "string" ? null : error.stack,
-                code: 500
-            }), {
+            this.error(error);
+            response = await this.errorResponse(error, {
                 status: 500,
                 statusText: "Internal ServiceWorker Error",
-                headers: {
-                    "Content-Type": "text/plain; charset=utf-8"
-                }
             });
         }
         this.dispatchEvent(new ServerEvent("afterfetch", { cancelable: false, group: "fetch", data: { url: typeof input == "string" ? input : input.url, request, response, respondWith(r) { respondWithResponse = r; } } }));
         respondWithResponse && (response = (await respondWithResponse).clone());
         return response;
-    }
-    async start() {
-        // console.log("server called 'start'", { server, routes: this.#routes });
-        let promises = [];
-        this.dispatchEvent(new ServerEvent("start", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
-        await Promise.all(promises);
-        this.#start.resolve(null);
     }
     async message(message, source) {
         this.dispatchEvent(new ServerEvent("beforemessage", { cancelable: false, group: "message", data: message }));
@@ -1448,880 +1468,440 @@ class Server extends EventTarget {
         }
         this.dispatchEvent(new ServerEvent("aftermessage", { cancelable: false, group: "message", data: message }));
     }
-    setSetting(property, value) {
-        this.#settings.set(property, value);
-        this.#idb.put("settings", { key: property, value: value });
-        return true;
+    #settings = new Map();
+    #settingsListenerMap = new Map();
+    getSetting(key) {
+        return this.#settings.get(key);
     }
-    hasSetting(property) {
-        return this.#settings.has(property);
+    async setSetting(key, value) {
+        let old_value = this.#settings.get(key);
+        this.#settings.set(key, value);
+        if (this.#settingsListenerMap.has(key)) {
+            await this.#settingsListenerMap.get(key)(old_value, value);
+        }
+        await this.#idb.put("settings", { key, value });
     }
-    getSetting(property) {
-        if (this.#settings.has(property)) {
-            return this.#settings.get(property);
-        }
-        return null;
-    }
-    async ping() {
-        if (!this.#pinging) {
-            this.#pinging = true;
-            let promises = [];
-            this.dispatchEvent(new ServerEvent("beforeping", { cancelable: false, group: "ping", data: { await(promise) { promises.push(promise); } } }));
-            await Promise.all(promises);
-            this.#connected = await this.is_connected();
-            let was_ping = false;
-            if (this.#connected && this.is_logged_in()) {
-                was_ping = true;
-                let promises = [];
-                this.dispatchEvent(new ServerEvent("ping", { cancelable: false, group: "ping", data: { await(promise) { promises.push(promise); } } }));
-                await Promise.all(promises);
-            }
-            this.#pinging = false;
-            if (was_ping) {
-                let promises = [];
-                this.dispatchEvent(new ServerEvent("afterping", { cancelable: false, group: "ping", data: { await(promise) { promises.push(promise); } } }));
-                await Promise.all(promises);
-            }
-        }
-    }
-    async apiFetch(func, args = []) {
-        if (this.network_online == false || this.getSetting("offline-mode")) {
-            throw new Error("Offline");
-        }
-        let headers = {
-            method: "post",
-            headers: {
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            },
-            body: JSON.stringify({
-                version: this.API_VERSION,
-                id: this.getSetting("id"),
-                token: this.getSetting("access-token"),
-                function: func,
-                arguments: args
-            })
-        };
-        let json = await (await fetch(this.API_URL, headers)).json();
-        if (json.version != this.API_VERSION) {
-            throw new Error("Invalid API Version. Please update!");
-        }
-        if (json.function != func) {
-            throw new Error("Invalid response function");
-        }
-        if ("error" in json) {
-            throw new Error(json.error);
-        }
-        return json.return;
-    }
-    async awaitEventListener(target, resolve_type, reject_type = "error") {
-        return new Promise((resolve, reject) => {
-            function resolveCallback(event) {
-                resolve(event);
-                target.removeEventListener(resolve_type, resolveCallback);
-                target.removeEventListener(reject_type, rejectCallback);
-            }
-            function rejectCallback(event) {
-                reject(event);
-                target.removeEventListener(resolve_type, resolveCallback);
-                target.removeEventListener(reject_type, rejectCallback);
-            }
-            target.addEventListener(resolve_type, resolveCallback);
-            target.addEventListener(reject_type, rejectCallback);
+    async #log(type, message, stack) {
+        await this.#idb.put("log", {
+            timestamp: Date.now(),
+            type,
+            message,
+            stack
         });
     }
-    async is_connected() {
-        try {
-            let value = await this.apiFetch("is_connected");
-            if (value === false && this.is_logged_in()) {
-                this.error("Der Server hat die Authentifizierung abgelehnt");
-            }
-            return true;
-        }
-        catch (e) {
-            return false;
-        }
+    async log(message, stack = null) {
+        console.log(message, stack);
+        await this.#log("log", message, stack);
     }
-    async generate_error(scope, options) {
-        if (typeof options.code != "number") {
-            options.code = 500;
-        }
-        scope.status = options.code;
-        return scope.build(options, `Error ${options.code}: ${options.message}\n${options.stack}`);
+    async warn(message, stack = null) {
+        console.warn(message, stack);
+        await this.#log("warn", message, stack);
     }
-    is_logged_in() {
-        return !!(this.getSetting("id") &&
-            this.getSetting("access-token"));
+    async error(message, stack = null) {
+        console.error(message, stack);
+        await this.#log("error", message, stack);
     }
-    registerRoute(pathname, route) {
-        if (typeof route == "object") {
-            if (route.files) {
-                Object.keys(route.files).forEach(key => {
-                    this.registerRoute(route.files[key], "cache");
-                });
-            }
-            if (route.icon) {
-                Server.ICON_SIZES.forEach(size => {
-                    let [width, height] = size.split("x");
-                    Server.ICON_PURPOSES.forEach(purpose => {
-                        server.registerRoute(route.icon.replace("${p}", purpose).replace("${w}", width).replace("${h}", height), "cache");
-                    });
-                });
-            }
+    async clearLog() {
+        await this.#idb.delete("log");
+        this.#log("clear", "Das Protokoll wurde erfolgreich gelöscht", null);
+        console.clear();
+    }
+    async getLog(types = {
+        log: true,
+        warn: true,
+        error: true
+    }) {
+        if (types.log && types.warn && types.error) {
+            return this.#idb.get("log");
         }
-        if (!this.#routes.has(pathname)) {
-            this.#routes.set(pathname, route);
-        }
-        else if (route != "cache" && this.#routes.get(pathname) != "cache") {
-            this.#routes.set(pathname, route);
+        else {
+            let type_array = [];
+            types.log && type_array.push("log");
+            types.warn && type_array.push("warn");
+            types.error && type_array.push("error");
+            return this.#idb.get("log", {
+                type: new RegExp("^(" + type_array.join("|") + ")$")
+            });
         }
     }
-    iterateRoutes(callback) {
-        this.#routes.forEach(callback);
+    #responseFunctions = new Map();
+    registerResponseFunction(id, responseFunction) {
+        this.#responseFunctions.set(id, responseFunction);
     }
-    createRedirection(url) {
-        return new Response(url, {
-            status: 302,
-            statusText: "Found",
-            headers: {
-                Location: url
-            }
-        });
+    async errorResponse(error, responseInit = {
+        headers: {
+            "Content-Type": "text/plain"
+        },
+        status: 500,
+        statusText: "Internal Server Error"
+    }) {
+        return new Response(error, responseInit);
     }
-    #staticEvents = new Map();
-    get onbeforeinstall() {
-        return this.#staticEvents.get("beforeinstall") || null;
+    async registerRoute(route) {
+        await this.#idb.add("routes", route);
     }
-    set onbeforeinstall(value) {
-        if (this.#staticEvents.has("beforeinstall")) {
-            this.removeEventListener("beforeinstall", this.#staticEvents.get("beforeinstall"));
+    async registerAsset(id, blob) {
+        await this.#idb.put("assets", { id, blob });
+    }
+    async registerRedirection(routeSelector, destination) {
+        await this.#idb.add("routes", Object.assign({
+            priority: 0,
+            script: null,
+            function: "redirect",
+            arguments: [destination]
+        }, routeSelector));
+    }
+    #ononline = null;
+    get ononline() {
+        return this.#ononline;
+    }
+    set ononline(value) {
+        if (this.#ononline) {
+            this.removeEventListener("online", this.#ononline);
         }
         if (typeof value == "function") {
-            this.#staticEvents.set("beforeinstall", value);
+            this.#ononline = value;
+            this.addEventListener("online", value);
+        }
+        else {
+            this.#ononline = null;
+        }
+    }
+    #onoffline = null;
+    get onoffline() {
+        return this.#onoffline;
+    }
+    set onoffline(value) {
+        if (this.#onoffline) {
+            this.removeEventListener("offline", this.#onoffline);
+        }
+        if (typeof value == "function") {
+            this.#onoffline = value;
+            this.addEventListener("offline", value);
+        }
+        else {
+            this.#onoffline = null;
+        }
+    }
+    #onconnected = null;
+    get onconnected() {
+        return this.#onconnected;
+    }
+    set onconnected(value) {
+        if (this.#onconnected) {
+            this.removeEventListener("connected", this.#onconnected);
+        }
+        if (typeof value == "function") {
+            this.#onconnected = value;
+            this.addEventListener("connected", value);
+        }
+        else {
+            this.#onconnected = null;
+        }
+    }
+    #ondisconnected = null;
+    get ondisconnected() {
+        return this.#ondisconnected;
+    }
+    set ondisconnected(value) {
+        if (this.#ondisconnected) {
+            this.removeEventListener("disconnected", this.#ondisconnected);
+        }
+        if (typeof value == "function") {
+            this.#ondisconnected = value;
+            this.addEventListener("disconnected", value);
+        }
+        else {
+            this.#ondisconnected = null;
+        }
+    }
+    #onbeforeinstall = null;
+    get onbeforeinstall() {
+        return this.#onbeforeinstall;
+    }
+    set onbeforeinstall(value) {
+        if (this.#onbeforeinstall) {
+            this.removeEventListener("beforeinstall", this.#onbeforeinstall);
+        }
+        if (typeof value == "function") {
+            this.#onbeforeinstall = value;
             this.addEventListener("beforeinstall", value);
         }
         else {
-            this.#staticEvents.delete("beforeinstall");
+            this.#onbeforeinstall = null;
         }
     }
+    #oninstall = null;
     get oninstall() {
-        return this.#staticEvents.get("install") || null;
+        return this.#oninstall;
     }
     set oninstall(value) {
-        if (this.#staticEvents.has("install")) {
-            this.removeEventListener("install", this.#staticEvents.get("install"));
+        if (this.#oninstall) {
+            this.removeEventListener("install", this.#oninstall);
         }
         if (typeof value == "function") {
-            this.#staticEvents.set("install", value);
+            this.#oninstall = value;
             this.addEventListener("install", value);
         }
         else {
-            this.#staticEvents.delete("install");
+            this.#oninstall = null;
         }
     }
+    #onafterinstall = null;
     get onafterinstall() {
-        return this.#staticEvents.get("afterinstall") || null;
+        return this.#onafterinstall;
     }
     set onafterinstall(value) {
-        if (this.#staticEvents.has("afterinstall")) {
-            this.removeEventListener("afterinstall", this.#staticEvents.get("afterinstall"));
+        if (this.#onafterinstall) {
+            this.removeEventListener("afterinstall", this.#onafterinstall);
         }
         if (typeof value == "function") {
-            this.#staticEvents.set("afterinstall", value);
+            this.#onafterinstall = value;
             this.addEventListener("afterinstall", value);
         }
         else {
-            this.#staticEvents.delete("afterinstall");
+            this.#onafterinstall = null;
         }
     }
+    #onbeforeupdate = null;
     get onbeforeupdate() {
-        return this.#staticEvents.get("beforeupdate") || null;
+        return this.#onbeforeupdate;
     }
     set onbeforeupdate(value) {
-        if (this.#staticEvents.has("beforeupdate")) {
-            this.removeEventListener("beforeupdate", this.#staticEvents.get("beforeupdate"));
+        if (this.#onbeforeupdate) {
+            this.removeEventListener("beforeupdate", this.#onbeforeupdate);
         }
         if (typeof value == "function") {
-            this.#staticEvents.set("beforeupdate", value);
+            this.#onbeforeupdate = value;
             this.addEventListener("beforeupdate", value);
         }
         else {
-            this.#staticEvents.delete("beforeupdate");
+            this.#onbeforeupdate = null;
         }
     }
+    #onupdate = null;
     get onupdate() {
-        return this.#staticEvents.get("update") || null;
+        return this.#onupdate;
     }
     set onupdate(value) {
-        if (this.#staticEvents.has("update")) {
-            this.removeEventListener("update", this.#staticEvents.get("update"));
+        if (this.#onupdate) {
+            this.removeEventListener("update", this.#onupdate);
         }
         if (typeof value == "function") {
-            this.#staticEvents.set("update", value);
+            this.#onupdate = value;
             this.addEventListener("update", value);
         }
         else {
-            this.#staticEvents.delete("update");
+            this.#onupdate = null;
         }
     }
+    #onafterupdate = null;
     get onafterupdate() {
-        return this.#staticEvents.get("afterupdate") || null;
+        return this.#onafterupdate;
     }
     set onafterupdate(value) {
-        if (this.#staticEvents.has("afterupdate")) {
-            this.removeEventListener("afterupdate", this.#staticEvents.get("afterupdate"));
+        if (this.#onafterupdate) {
+            this.removeEventListener("afterupdate", this.#onafterupdate);
         }
         if (typeof value == "function") {
-            this.#staticEvents.set("afterupdate", value);
+            this.#onafterupdate = value;
             this.addEventListener("afterupdate", value);
         }
         else {
-            this.#staticEvents.delete("afterupdate");
+            this.#onafterupdate = null;
         }
     }
+    #onbeforeactivate = null;
     get onbeforeactivate() {
-        return this.#staticEvents.get("beforeactivate") || null;
+        return this.#onbeforeactivate;
     }
     set onbeforeactivate(value) {
-        if (this.#staticEvents.has("beforeactivate")) {
-            this.removeEventListener("beforeactivate", this.#staticEvents.get("beforeactivate"));
+        if (this.#onbeforeactivate) {
+            this.removeEventListener("beforeactivate", this.#onbeforeactivate);
         }
         if (typeof value == "function") {
-            this.#staticEvents.set("beforeactivate", value);
+            this.#onbeforeactivate = value;
             this.addEventListener("beforeactivate", value);
         }
         else {
-            this.#staticEvents.delete("beforeactivate");
+            this.#onbeforeactivate = null;
         }
     }
+    #onactivate = null;
     get onactivate() {
-        return this.#staticEvents.get("activate") || null;
+        return this.#onactivate;
     }
     set onactivate(value) {
-        if (this.#staticEvents.has("activate")) {
-            this.removeEventListener("activate", this.#staticEvents.get("activate"));
+        if (this.#onactivate) {
+            this.removeEventListener("activate", this.#onactivate);
         }
         if (typeof value == "function") {
-            this.#staticEvents.set("activate", value);
+            this.#onactivate = value;
             this.addEventListener("activate", value);
         }
         else {
-            this.#staticEvents.delete("activate");
+            this.#onactivate = null;
         }
     }
+    #onafteractivate = null;
     get onafteractivate() {
-        return this.#staticEvents.get("afteractivate") || null;
+        return this.#onafteractivate;
     }
     set onafteractivate(value) {
-        if (this.#staticEvents.has("afteractivate")) {
-            this.removeEventListener("afteractivate", this.#staticEvents.get("afteractivate"));
+        if (this.#onafteractivate) {
+            this.removeEventListener("afteractivate", this.#onafteractivate);
         }
         if (typeof value == "function") {
-            this.#staticEvents.set("afteractivate", value);
+            this.#onafteractivate = value;
             this.addEventListener("afteractivate", value);
         }
         else {
-            this.#staticEvents.delete("afteractivate");
+            this.#onafteractivate = null;
         }
     }
+    #onbeforefetch = null;
     get onbeforefetch() {
-        return this.#staticEvents.get("beforefetch") || null;
+        return this.#onbeforefetch;
     }
     set onbeforefetch(value) {
-        if (this.#staticEvents.has("beforefetch")) {
-            this.removeEventListener("beforefetch", this.#staticEvents.get("beforefetch"));
+        if (this.#onbeforefetch) {
+            this.removeEventListener("beforefetch", this.#onbeforefetch);
         }
         if (typeof value == "function") {
-            this.#staticEvents.set("beforefetch", value);
+            this.#onbeforefetch = value;
             this.addEventListener("beforefetch", value);
         }
         else {
-            this.#staticEvents.delete("beforefetch");
+            this.#onbeforefetch = null;
         }
     }
+    #onfetch = null;
     get onfetch() {
-        return this.#staticEvents.get("fetch") || null;
+        return this.#onfetch;
     }
     set onfetch(value) {
-        if (this.#staticEvents.has("fetch")) {
-            this.removeEventListener("fetch", this.#staticEvents.get("fetch"));
+        if (this.#onfetch) {
+            this.removeEventListener("fetch", this.#onfetch);
         }
         if (typeof value == "function") {
-            this.#staticEvents.set("fetch", value);
+            this.#onfetch = value;
             this.addEventListener("fetch", value);
         }
         else {
-            this.#staticEvents.delete("fetch");
+            this.#onfetch = null;
         }
     }
+    #onafterfetch = null;
     get onafterfetch() {
-        return this.#staticEvents.get("afterfetch") || null;
+        return this.#onafterfetch;
     }
     set onafterfetch(value) {
-        if (this.#staticEvents.has("afterfetch")) {
-            this.removeEventListener("afterfetch", this.#staticEvents.get("afterfetch"));
+        if (this.#onafterfetch) {
+            this.removeEventListener("afterfetch", this.#onafterfetch);
         }
         if (typeof value == "function") {
-            this.#staticEvents.set("afterfetch", value);
+            this.#onafterfetch = value;
             this.addEventListener("afterfetch", value);
         }
         else {
-            this.#staticEvents.delete("afterfetch");
+            this.#onafterfetch = null;
         }
     }
+    #onbeforestart = null;
     get onbeforestart() {
-        return this.#staticEvents.get("beforestart") || null;
+        return this.#onbeforestart;
     }
     set onbeforestart(value) {
-        if (this.#staticEvents.has("beforestart")) {
-            this.removeEventListener("beforestart", this.#staticEvents.get("beforestart"));
+        if (this.#onbeforestart) {
+            this.removeEventListener("beforestart", this.#onbeforestart);
         }
         if (typeof value == "function") {
-            this.#staticEvents.set("beforestart", value);
+            this.#onbeforestart = value;
             this.addEventListener("beforestart", value);
         }
         else {
-            this.#staticEvents.delete("beforestart");
+            this.#onbeforestart = null;
         }
     }
+    #onstart = null;
     get onstart() {
-        return this.#staticEvents.get("start") || null;
+        return this.#onstart;
     }
     set onstart(value) {
-        if (this.#staticEvents.has("start")) {
-            this.removeEventListener("start", this.#staticEvents.get("start"));
+        if (this.#onstart) {
+            this.removeEventListener("start", this.#onstart);
         }
         if (typeof value == "function") {
-            this.#staticEvents.set("start", value);
+            this.#onstart = value;
             this.addEventListener("start", value);
         }
         else {
-            this.#staticEvents.delete("start");
+            this.#onstart = null;
         }
     }
+    #onafterstart = null;
     get onafterstart() {
-        return this.#staticEvents.get("afterstart") || null;
+        return this.#onafterstart;
     }
     set onafterstart(value) {
-        if (this.#staticEvents.has("afterstart")) {
-            this.removeEventListener("afterstart", this.#staticEvents.get("afterstart"));
+        if (this.#onafterstart) {
+            this.removeEventListener("afterstart", this.#onafterstart);
         }
         if (typeof value == "function") {
-            this.#staticEvents.set("afterstart", value);
+            this.#onafterstart = value;
             this.addEventListener("afterstart", value);
         }
         else {
-            this.#staticEvents.delete("afterstart");
+            this.#onafterstart = null;
         }
     }
+    #onbeforemessage = null;
     get onbeforemessage() {
-        return this.#staticEvents.get("beforemessage") || null;
+        return this.#onbeforemessage;
     }
     set onbeforemessage(value) {
-        if (this.#staticEvents.has("beforemessage")) {
-            this.removeEventListener("beforemessage", this.#staticEvents.get("beforemessage"));
+        if (this.#onbeforemessage) {
+            this.removeEventListener("beforemessage", this.#onbeforemessage);
         }
         if (typeof value == "function") {
-            this.#staticEvents.set("beforemessage", value);
+            this.#onbeforemessage = value;
             this.addEventListener("beforemessage", value);
         }
         else {
-            this.#staticEvents.delete("beforemessage");
+            this.#onbeforemessage = null;
         }
     }
+    #onmessage = null;
     get onmessage() {
-        return this.#staticEvents.get("message") || null;
+        return this.#onmessage;
     }
     set onmessage(value) {
-        if (this.#staticEvents.has("message")) {
-            this.removeEventListener("message", this.#staticEvents.get("message"));
+        if (this.#onmessage) {
+            this.removeEventListener("message", this.#onmessage);
         }
         if (typeof value == "function") {
-            this.#staticEvents.set("message", value);
+            this.#onmessage = value;
             this.addEventListener("message", value);
         }
         else {
-            this.#staticEvents.delete("message");
+            this.#onmessage = null;
         }
     }
+    #onaftermessage = null;
     get onaftermessage() {
-        return this.#staticEvents.get("aftermessage") || null;
+        return this.#onaftermessage;
     }
     set onaftermessage(value) {
-        if (this.#staticEvents.has("aftermessage")) {
-            this.removeEventListener("aftermessage", this.#staticEvents.get("aftermessage"));
+        if (this.#onaftermessage) {
+            this.removeEventListener("aftermessage", this.#onaftermessage);
         }
         if (typeof value == "function") {
-            this.#staticEvents.set("aftermessage", value);
+            this.#onaftermessage = value;
             this.addEventListener("aftermessage", value);
         }
         else {
-            this.#staticEvents.delete("aftermessage");
+            this.#onaftermessage = null;
         }
-    }
-    get onbeforeping() {
-        return this.#staticEvents.get("beforeping") || null;
-    }
-    set onbeforeping(value) {
-        if (this.#staticEvents.has("beforeping")) {
-            this.removeEventListener("beforeping", this.#staticEvents.get("beforeping"));
-        }
-        if (typeof value == "function") {
-            this.#staticEvents.set("beforeping", value);
-            this.addEventListener("beforeping", value);
-        }
-        else {
-            this.#staticEvents.delete("beforeping");
-        }
-    }
-    get onping() {
-        return this.#staticEvents.get("ping") || null;
-    }
-    set onping(value) {
-        if (this.#staticEvents.has("ping")) {
-            this.removeEventListener("ping", this.#staticEvents.get("ping"));
-        }
-        if (typeof value == "function") {
-            this.#staticEvents.set("ping", value);
-            this.addEventListener("ping", value);
-        }
-        else {
-            this.#staticEvents.delete("ping");
-        }
-    }
-    get onafterping() {
-        return this.#staticEvents.get("afterping") || null;
-    }
-    set onafterping(value) {
-        if (this.#staticEvents.has("afterping")) {
-            this.removeEventListener("afterping", this.#staticEvents.get("afterping"));
-        }
-        if (typeof value == "function") {
-            this.#staticEvents.set("afterping", value);
-            this.addEventListener("afterping", value);
-        }
-        else {
-            this.#staticEvents.delete("afterping");
-        }
-    }
-}
-/// <reference no-default-lib="true" />
-/// <reference path="index.ts" />
-class Scope extends EventTarget {
-    request;
-    [Symbol.toStringTag] = "Scope";
-    globalThis = server;
-    data = {
-        page_title: "",
-        site_title: server.getSetting("site-title"),
-        theme_color: server.getSetting("theme-color"),
-        menus: {
-            "navigation": {
-                label: "Navigation",
-                href: "#navigation",
-                submenu: {}
-            }
-        },
-        scripts: {},
-        styles: {},
-        main: "",
-        toasts: []
-    };
-    version = "Version: " + Server.VERSION + (server.server_online ? " (Online)" : " (Offline)");
-    copyright = server.getSetting("copyright");
-    GET = {};
-    POST = {};
-    REQUEST = {};
-    status = 200;
-    statusText = "OK";
-    headers = new Headers({
-        "Content-Type": "text/html;charset=utf-8"
-    });
-    scope = this;
-    url;
-    ready;
-    files = {};
-    icon;
-    constructor(request, route) {
-        super();
-        this.request = request;
-        this.url = new URL(request.url);
-        this.icon = route.icon || server.getSetting("server-icon") || null;
-        this.ready = (async () => {
-            route.files && await Promise.all(Object.keys(route.files).map(async (file) => this.files[file] = new CacheResponse(route.files[file])));
-            this.url.searchParams.forEach((value, key) => {
-                this.GET[key] = value;
-                this.REQUEST[key] = value;
-            });
-            if (this.request.headers.has("content-type") && /application\/x-www-form-urlencoded/i.test(request.headers.get("content-type"))) {
-                new URLSearchParams(await this.request.text()).forEach((value, key) => {
-                    this.POST[key] = value;
-                    this.REQUEST[key] = value;
-                });
-            }
-            return this;
-        })();
-    }
-    /**
-     * Füllt den Template-String mit Daten
-     *
-     * @param data Das zu benutzende Daten-Array
-     * @param template Der Template-String
-     */
-    async build(data, template) {
-        data = Object.assign({}, this.data, data);
-        let matches = template.match(/\{\{ (generate_[a-z0-9_]+)\(([a-z0-9_, -+]*)\) \}\}/g);
-        if (matches) {
-            for (let value of matches) {
-                let match = /\{\{ (generate_[a-z0-9_]+)\(([a-z0-9_, -+]*)\) \}\}/.exec(value);
-                if (typeof this[match[1]] == "function") {
-                    let pattern = match[0];
-                    let args = match[2].split(",").map(a => a.trim());
-                    args.unshift(data);
-                    let replacement = await this[match[1]].apply(this, args);
-                    template = template.replace(pattern, replacement);
-                }
-            }
-        }
-        return template;
-    }
-    /**
-     * Gibt das Menü im HTML-Format aus
-     *
-     * @param menu Das Menü
-     * @param options Die zu verwendenden Optionen
-     * @returns &lt;ul&gt;-Tags mit Einträgen
-     */
-    build_menu(menu, options = {}) {
-        options = Object.assign(options, {
-            menu_class: "menu",
-            submenu_class: "submenu",
-            entry_class: "menuitem",
-            id_prefix: "",
-        });
-        let html = "<ul class=\"" + this.htmlspecialchars(options.menu_class) + "\">";
-        for (let id in menu) {
-            let item = menu[id];
-            html += "<li class=\"" + this.htmlspecialchars(options.entry_class);
-            if ("submenu" in item && Object.keys(item.submenu).length > 0) {
-                html += " has-submenu";
-            }
-            let url = new URL(new Request(item.href).url);
-            if (this.scope.url.origin + this.scope.url.pathname == url.origin + url.pathname) {
-                html += " selected";
-            }
-            html += "\" id=\"" + this.htmlspecialchars(options.id_prefix + id) + "_item\"><a href=\"" + this.htmlspecialchars(item.href) + "\" id=\"" + this.htmlspecialchars(id) + "\">" + this.htmlspecialchars(item.label) + "</a>";
-            if ("submenu" in item && Object.keys(item.submenu).length > 0) {
-                html += this.build_menu(item.submenu, Object.assign({
-                    id_prefix: this.htmlspecialchars("id_prefix" in options ? options.id_prefix + "-" + id + "-" : id + "-"),
-                    menu_class: options.submenu_class,
-                }, options));
-            }
-            html += "</li>";
-        }
-        html += "</ul>";
-        return html;
-    }
-    /**
-     * Convert special characters to HTML entities
-     *
-     * @param string The string being converted.
-     * @return The converted string.
-     */
-    htmlspecialchars(string) {
-        return string.toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
-    }
-    /**
-     * Fügt ein Stylesheet hinzu oder ändert ein bestehendes
-     *
-     * @param data Das zu benutzende Daten-Array
-     * @param id ID des Stylesheets
-     * @param href URL zum Stylesheet
-     * @param media Media Informationen
-     * @param type Typ des Stylesheets
-     */
-    add_style(id, href, media = "all,screen,handheld,print", type = "text/css") {
-        this.data.styles[id] = { id, href, media, type };
-    }
-    /**
-     * Löscht ein zuvor hinzugefügtes Stylesheet
-     *
-     * @param data Das zu benutzende Daten-Array
-     * @param id ID des Stylesheets
-     */
-    remove_style(id) {
-        delete this.data.styles[id];
-    }
-    /**
-     * Fügt ein Skript hinzu
-     *
-     * @param data Das zu benutzende Daten-Array
-     * @param id ID des Skripts
-     * @param src URL zum Skript
-     * @param type Typ des Skripts
-     * @param position Gibt an, an welcher Position das Sktip eingefügt werden soll
-     */
-    add_script(id, src, type = "text/javascript", position = "head") {
-        this.data.scripts[id] = { id, src, type, position };
-    }
-    /**
-     * Löscht ein zuvor hinzugefügtes Skript
-     *
-     * @param data Das zu benutzende Daten-Array
-     * @param id ID des Skripts
-     */
-    remove_script(id) {
-        delete this.data.scripts[id];
-    }
-    /**
-     * Fügt einen Menüpunkt hinzu
-     *
-     * @param data Das zu benutzende Daten-Array
-     * @param path Pfad zum Menü-Eintrag (geteilt durch "/")
-     * @param label Beschriftung des Links
-     * @param href URL
-     * @param _menu `[Privater Parameter]` Das Menü, dem ein Eintrag hinzugefügt werden soll
-     */
-    add_menu_item(path, label, href, _menu = this.data.menus) {
-        let patharray = path.split("/");
-        let id = patharray.shift();
-        if (patharray.length > 0) {
-            if (id in _menu === false) {
-                _menu[id] = {
-                    label: id,
-                    href: `#${id}`,
-                    submenu: {}
-                };
-            }
-            this.add_menu_item(patharray.join("/"), label, href, _menu[id].submenu);
-        }
-        else {
-            _menu[id] = { label, href, submenu: {} };
-        }
-    }
-    /**
-     * Überprüft, ob ein Datensatz korrekt ist
-     *
-     * @param entry Der zu überprüfende Datensatz
-     */
-    is_valid_entry(entry) {
-        if ("date_of_invoice" in entry && entry.date_of_invoice && this.is_valid_date(entry.date_of_invoice) &&
-            "date_of_payment" in entry && (entry.date_of_payment ? this.is_valid_date(entry.date_of_payment) : true) &&
-            "account" in entry && entry.account &&
-            "person" in entry && entry.person &&
-            "category" in entry && entry.category &&
-            "description" in entry && entry.description &&
-            "amount" in entry && entry.amount && !isNaN(entry.amount)) {
-            if ("quantity" in entry && entry.quantity && !isNaN(entry.quantity) &&
-                "unit" in entry && entry.unit) {
-                return true;
-            }
-            else if (("quantity" in entry === false || !entry.quantity) &&
-                ("unit" in entry === false || !entry.unit)) {
-                return true;
-            }
-            else {
-                return false;
-            }
-        }
-        return false;
-    }
-    /**
-     * Überprüft, ob eine Zeichenkette ein gültiges Datum (nach dem angegebenen Datumsformat) darstellt
-     *
-     * @param date Die zu überprüfende Zeichenkette
-     * @param format Das Datumsformat
-     */
-    is_valid_date(date, format = "Y-m-d") {
-        return globalThis.date(format, date) == date;
-    }
-    /**
-     *
-     * @param quantity
-     * @param unit
-     * @returns
-     */
-    format_quantity(quantity, unit) {
-        if (unit.toLowerCase() == unit) {
-            return Math.abs(quantity) + unit;
-        }
-        else if (unit == "Stk" || unit == "Pkg") {
-            return Math.abs(quantity) + " " + unit + ".";
-        }
-        else {
-            return Math.abs(quantity) + " " + unit;
-        }
-    }
-    /**
-     *
-     * @param quantity
-     * @param unit
-     * @param amount
-     * @returns
-     */
-    format_amount_per_kilo(quantity, unit, amount) {
-        if (unit.toLowerCase() == unit) {
-            return "1000" + unit + ": " + Math.abs(amount / quantity * 1000).toFloatingString(2).replace(".", ",") + "€";
-        }
-        else if (unit == "Stk" || unit == "Pkg") {
-            return "1 " + unit + ".: " + Math.abs(amount / quantity).toFloatingString(2).replace(".", ",") + "€";
-        }
-        else {
-            return "1 " + unit + ": " + Math.abs(amount / quantity).toFloatingString(2).replace(".", ",") + "€";
-        }
-    }
-    /**
-     * Gibt die Value des Daten-Arrays an einem Index aus
-     *
-     * @param data Daten-Array der build-Funktion
-     * @param index Index des Menüs
-     * @param escape html | url | plain
-     * @return Der Hauptinhalt der Seite
-     */
-    generate_value(data, index, escape) {
-        switch (escape) {
-            case "html":
-                return this.htmlspecialchars(data[index]);
-            case "url":
-                return encodeURI(data[index]);
-            case "json":
-                return JSON.stringify(data[index]);
-            case "plain":
-            default:
-                return (data[index] || "").toString();
-        }
-    }
-    generate_version(_data, escape) {
-        return this.generate_value(this, "version", escape);
-    }
-    generate_copyright(_data, escape) {
-        return this.generate_value(this, "copyright", escape);
-    }
-    generate_url(_data, url = "", escape = "url") {
-        return this.generate_value({ url: Server.APP_SCOPE + url }, "url", escape);
-    }
-    generate_offline_switch(_data, hidden) {
-        return `<input type="checkbox" id="switch_offline_mode" onclick="navigator.serviceWorker.controller.postMessage({type:&quot;set-setting&quot;,property:&quot;offline-mode&quot;,value:this.checked})" ${server.getSetting("offline-mode") ? ' checked=""' : ""}${hidden == "true" ? "" : ' hidden="'}/>`;
-    }
-    /**
-     * Gibt den Inhalt des &lt;title&gt;-Tags aus
-     *
-     * @param data Daten-Array der build-Funktion
-     * @param mode full | page | site
-     * @return Inhalt des &lt;title&gt;-Tags
-     */
-    generate_title(data, mode) {
-        switch (mode) {
-            case "page":
-                return this.htmlspecialchars(data.page_title);
-            case "site":
-                return this.htmlspecialchars(data.site_title);
-            case "full":
-            default:
-                if (data.page_title) {
-                    return this.htmlspecialchars(data.page_title + " | " + data.site_title);
-                }
-                else {
-                    return this.htmlspecialchars(data.site_title);
-                }
-        }
-    }
-    generate_icons(_data) {
-        let max_size = "";
-        let max_width = 0;
-        let max_icon = "";
-        if (!this.icon) {
-            return "";
-        }
-        return Server.ICON_SIZES.map(size => {
-            let [width, height] = size.split("x");
-            let icon = this.icon.replace("${p}", "any").replace("${w}", width).replace("${h}", height);
-            if (Number(width) > max_width) {
-                max_size = size;
-                max_width = Number(width);
-                max_icon = icon;
-            }
-            return `<link rel="apple-touch-icon" sizes="${size}" href="${icon}" /><link rel="icon" sizes="${size}" href="${icon}" />`;
-        }).join("") + `<link rel="apple-touch-startup-image" sizes="${max_size}" href="${max_icon}" />`;
-    }
-    /**
-     * Gibt die Stylesheets als &lt;link&gt;-Tags aus
-     *
-     * @param data Daten-Array der build-Funktion
-     * @return &lt;link&gt;-Tags
-     */
-    generate_styles(data) {
-        let html = "";
-        for (let index in data.styles) {
-            let style = data.styles[index];
-            html += "<link id=\"" + this.htmlspecialchars(style.id) + "\" rel=\"stylesheet\" href=\"" + this.htmlspecialchars(style.href) + "\" media=\"" + this.htmlspecialchars(style.media) + "\" type=\"" + this.htmlspecialchars(style.type) + "\" />";
-        }
-        return html;
-    }
-    /**
-     * Gibt das Skript als &lt;script&gt;-Tags aus
-     *
-     * @param data Daten-Array der build-Funktion
-     * @param position Gibt an, für welche Position die Skripte ausgegeben werden sollen
-     * @return &lt;script&gt;-Tags
-     */
-    generate_scripts(data, position = "head") {
-        let html = "";
-        for (let index in data.scripts) {
-            let script = data.scripts[index];
-            if (script.position == position) {
-                html += "<script id=\"" + this.htmlspecialchars(script.id) + "\" src=\"" + this.htmlspecialchars(script.src) + "\" type=\"" + this.htmlspecialchars(script.type) + "\"></script>";
-            }
-        }
-        ;
-        return html;
-    }
-    /**
-     * Gibt ein Menü aus
-     *
-     * @param data Daten-Array der build-Funktion
-     * @param index Index des Menüs
-     * @return
-     */
-    generate_menu(data, index) {
-        if (index in data.menus) {
-            return this.build_menu(data.menus[index].submenu);
-        }
-        else {
-            return `<p>Men&uuml; "${index}" wurde nicht gefunden!</p>`;
-        }
-    }
-    async generate_log_badge(_data, type, hide_empty = "false") {
-        let options = {
-            log: false,
-            warn: false,
-            error: false
-        };
-        switch (type) {
-            case "log":
-                options.log = true;
-                break;
-            case "warn":
-                options.warn = true;
-                break;
-            case "error":
-                options.error = true;
-                break;
-        }
-        let entries = await server.get_log(options);
-        if (entries.length == 0 && hide_empty == "true") {
-            return "";
-        }
-        return `<span class="${this.htmlspecialchars(type)}-badge">${this.htmlspecialchars("" + entries.length)}</span>`;
-    }
-    toast(message, delay = 1000, color = "#000") {
-        this.data.toasts.push([message, delay, color]);
-    }
-    generate_toasts(data) {
-        if (data.toasts && data.toasts.length > 0) {
-            return "<script type=\"text/javascript\">(async ()=>{let toasts=" + JSON.stringify(data.toasts) + ";let toast;while(toast=toasts.shift()){await createToast(...toast);}})()</script>";
-        }
-        return "";
     }
 }
 /// <reference no-default-lib="true" />
@@ -2348,7 +1928,27 @@ Number.prototype.toFloatingString = function (decimals) {
     }
 };
 String.prototype.toRegExp = function (flags = "") {
-    return new RegExp(this.replace(/\s+/gm, " ").split(" ").map(string => string.replace(/([\\\/\[\]\{\}\?\*\+\.\^\$\(\)\:\=\!\|\,])/g, "\\$1")).join("|"), flags);
+    return new RegExp(this.replace(/([\\\/\[\]\{\}\?\*\+\.\^\$\(\)\:\=\!\|\,])/g, "\\$1"), flags);
+};
+String.prototype.escape = function (escapable = "", escapeWith) {
+    return this.replace(new RegExp(escapable.replace(/([\\\/\[\]\{\}\?\*\+\.\^\$\(\)\:\=\!\|\,])/g, "\\$1"), "g"), escapeWith.replace(/([\\\/\[\]\{\}\?\*\+\.\^\$\(\)\:\=\!\|\,])/g, "\\$1") + "$1");
+};
+String.ESCAPE_REGEXP = "\\/[]{}?*+.^$():=!|,";
+EventTarget.prototype.awaitEventListener = function awaitEventListener(resolve_type, reject_type = "error") {
+    return new Promise((resolve, reject) => {
+        let resolveCallback = (event) => {
+            resolve(event);
+            this.removeEventListener(resolve_type, resolveCallback);
+            this.removeEventListener(reject_type, rejectCallback);
+        };
+        let rejectCallback = (event) => {
+            reject(event);
+            this.removeEventListener(resolve_type, resolveCallback);
+            this.removeEventListener(reject_type, rejectCallback);
+        };
+        this.addEventListener(resolve_type, resolveCallback, { once: true });
+        this.addEventListener(reject_type, rejectCallback, { once: true });
+    });
 };
 /**
  * replace i18n, if it is not available
@@ -2379,6 +1979,16 @@ function date(string, timestamp = new Date) {
     }).join("");
 }
 (function (date_1) {
+    /**
+     * Überprüft, ob eine Zeichenkette ein gültiges Datum (nach dem angegebenen Datumsformat) darstellt
+     *
+     * @param date_string Die zu überprüfende Zeichenkette
+     * @param format Das Datumsformat
+     */
+    function isValid(date_string, format = "Y-m-d") {
+        return date(format, date_string) == date_string;
+    }
+    date_1.isValid = isValid;
     /**
      * Diese Zeichenfolgen werden von `date()` benutzt um die Wochentage darzustellen
      *
@@ -2768,673 +2378,592 @@ function date(string, timestamp = new Date) {
 /// <reference path="indexeddbevent.ts" />
 /// <reference path="serverevent.ts" />
 /// <reference path="server.ts" />
-/// <reference path="scope.ts" />
 /// <reference path="helper.ts" />
 // const DEBUG_MODE = "online";
 const server = new Server();
 /// <reference no-default-lib="true" />
 /// <reference path="server/index.ts" />
-server.setSetting("site-title", "Vokabel-Trainer");
-server.setSetting("theme-color", "#008000");
+// server.setSetting("site-title", "ServiceWorkerServer");
+// server.setSetting("theme-color", "#000000");
 server.setSetting("copyright", "\u00a9 " + new Date().getFullYear() + " MPDieckmann.");
-server.setSetting("server-icon", Server.APP_SCOPE + "/client/png/index/${p}/${w}-${h}.png");
-server.setSetting("access-token", "default-access");
-server.setSetting("id", "default");
+// server.setSetting("server-icon", Server.APP_SCOPE + "/client/png/index/${p}/${w}-${h}.png");
+// server.setSetting("access-token", "default-access");
+// server.setSetting("id", "default");
 server.start();
 /// <reference no-default-lib="true" />
-/// <reference path="../config.ts" />
-server.registerRoute(Server.APP_SCOPE + "/debug", {
-    files: {
-        "mpc.css": Server.APP_SCOPE + "/client/css/mpc.css",
-        "main.css": Server.APP_SCOPE + "/client/css/main.css",
-        "print.css": Server.APP_SCOPE + "/client/css/print.css",
-        "debug.css": Server.APP_SCOPE + "/client/css/debug.css",
-        "main.js": Server.APP_SCOPE + "/client/js/main.js",
-        "layout.html": Server.APP_SCOPE + "/client/html/layout.html"
-    },
-    async response() {
-        this.add_style("mpc-css", this.files["mpc.css"].url);
-        this.add_style("main-css", this.files["main.css"].url);
-        this.add_style("debug-css", this.files["debug.css"].url);
-        this.add_style("print-css", this.files["print.css"].url, "print");
-        this.add_script("main-js", this.files["main.js"].url);
-        let main = "";
-        if (this.GET.clear_logs == 1) {
-            await server.clear_log();
+/// <reference path="../server/server.ts" />
+class Scope {
+    [Symbol.toStringTag] = "Scope";
+    GET = {};
+    POST = {};
+    REQUEST = {};
+    url;
+    ready;
+    request;
+    #status = 200;
+    get status() {
+        return this.#status;
+    }
+    set status(value) {
+        if (value > 100 && value < 600) {
+            this.#status = value;
         }
-        let props = new Map();
-        let counters = new Map();
-        let scope = this;
-        function expand_property(prop, prefix = "") {
-            if (typeof prop == "function" ||
-                typeof prop == "object" && prop !== null) {
-                if (props.has(prop)) {
-                    return `<div class="value-non-primitive">${prefix}<span class="value type-${typeof prop}"><a href="#${scope.htmlspecialchars(encodeURIComponent(props.get(prop)))}">${props.get(prop)}</a></span></div>`;
+    }
+    statusText = "OK";
+    #headers = new Headers();
+    get headers() {
+        return this.#headers;
+    }
+    set headers(value) {
+        if (value instanceof Headers) {
+            this.#headers = value;
+        }
+        else {
+            this.#headers = new Headers(value);
+        }
+    }
+    site_title = "";
+    page_title = "";
+    data;
+    constructor(request, data = {}) {
+        this.request = request;
+        this.url = new URL(request.url);
+        this.data = data;
+        this.ready = (async () => {
+            this.url.searchParams.forEach((value, key) => {
+                this.GET[key] = value;
+                this.REQUEST[key] = value;
+            });
+            if (this.request.headers.has("content-type") && /application\/x-www-form-urlencoded/i.test(request.headers.get("content-type"))) {
+                new URLSearchParams(await this.request.text()).forEach((value, key) => {
+                    this.POST[key] = value;
+                    this.REQUEST[key] = value;
+                });
+            }
+            return this;
+        })();
+    }
+    /**
+     * Füllt den Template-String mit Daten
+     *
+     * @param template Der Template-String
+     */
+    async build(template) {
+        let matches = template.match(/\{\{ (generate_[a-z0-9_]+)\(([a-z0-9_, -+]*)\) \}\}/g);
+        if (matches) {
+            for (let value of matches) {
+                let match = /\{\{ (generate_[a-z0-9_]+)\(([a-z0-9_, -+]*)\) \}\}/.exec(value);
+                if (typeof this[match[1]] == "function") {
+                    let pattern = match[0];
+                    let args = match[2].split(",").map(a => a.trim());
+                    let replacement = await this[match[1]].apply(this, args);
+                    template = template.replace(pattern, replacement);
                 }
-                let obj_id;
-                if (typeof prop == "function") {
-                    obj_id = scope.htmlspecialchars(prop.toString().split(" ", 1)[0] == "class" ? "class" : "function") + " " + scope.htmlspecialchars(prop.name);
-                    let count = counters.get(obj_id) || 0;
-                    counters.set(obj_id, ++count);
-                    obj_id += `#${count}(${scope.htmlspecialchars(prop.length)} argument${prop.length == 1 ? "" : "s"})`;
-                    props.set(prop, obj_id);
+            }
+        }
+        return template;
+    }
+    async toResponse(template) {
+        if (template instanceof CacheResponse) {
+            template = await template.text();
+        }
+        return new Response(await this.build(template), this);
+    }
+    /**
+     * Gibt das Menü im HTML-Format aus
+     *
+     * @param menu Das Menü
+     * @param options Die zu verwendenden Optionen
+     * @returns &lt;ul&gt;-Tags mit Einträgen
+     */
+    build_menu(menu, options = {}) {
+        options = Object.assign(options, {
+            menu_class: "menu",
+            submenu_class: "submenu",
+            entry_class: "menuitem",
+            id_prefix: "",
+        });
+        let html = "<ul class=\"" + this.htmlspecialchars(options.menu_class) + "\">";
+        for (let id in menu) {
+            let item = menu[id];
+            html += "<li class=\"" + this.htmlspecialchars(options.entry_class);
+            if ("submenu" in item && Object.keys(item.submenu).length > 0) {
+                html += " has-submenu";
+            }
+            let url = new URL(new Request(item.href).url);
+            if (this.url.origin + this.url.pathname == url.origin + url.pathname) {
+                html += " selected";
+            }
+            html += "\" id=\"" + this.htmlspecialchars(options.id_prefix + id) + "_item\"><a href=\"" + this.htmlspecialchars(item.href) + "\" id=\"" + this.htmlspecialchars(id) + "\">" + this.htmlspecialchars(item.label) + "</a>";
+            if ("submenu" in item && Object.keys(item.submenu).length > 0) {
+                html += this.build_menu(item.submenu, Object.assign({
+                    id_prefix: this.htmlspecialchars("id_prefix" in options ? options.id_prefix + "-" + id + "-" : id + "-"),
+                    menu_class: options.submenu_class,
+                }, options));
+            }
+            html += "</li>";
+        }
+        html += "</ul>";
+        return html;
+    }
+    /**
+     * Convert special characters to HTML entities
+     *
+     * @param string The string being converted.
+     * @return The converted string.
+     */
+    htmlspecialchars(string) {
+        return string.toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+    }
+    #styles;
+    /**
+     * Fügt ein Stylesheet hinzu oder ändert ein bestehendes
+     *
+     * @param data Das zu benutzende Daten-Array
+     * @param id ID des Stylesheets
+     * @param href URL zum Stylesheet
+     * @param media Media Informationen
+     * @param type Typ des Stylesheets
+     */
+    add_style(id, href, media = "all,screen,handheld,print", type = "text/css") {
+        this.#styles[id] = { id, href: href instanceof CacheResponse ? href.url : href, media, type };
+    }
+    /**
+     * Löscht ein zuvor hinzugefügtes Stylesheet
+     *
+     * @param data Das zu benutzende Daten-Array
+     * @param id ID des Stylesheets
+     */
+    remove_style(id) {
+        delete this.#styles[id];
+    }
+    #scripts;
+    /**
+     * Fügt ein Skript hinzu
+     *
+     * @param data Das zu benutzende Daten-Array
+     * @param id ID des Skripts
+     * @param src URL zum Skript
+     * @param type Typ des Skripts
+     * @param position Gibt an, an welcher Position das Sktip eingefügt werden soll
+     */
+    add_script(id, src, type = "text/javascript", position = "head") {
+        this.#scripts[id] = { id, src: src instanceof CacheResponse ? src.url : src, type, position };
+    }
+    /**
+     * Löscht ein zuvor hinzugefügtes Skript
+     *
+     * @param id ID des Skripts
+     */
+    remove_script(id) {
+        delete this.#scripts[id];
+    }
+    #menus;
+    add_menu_item(path, label, href, submenu = this.#menus) {
+        let patharray = path.split("/");
+        let id = patharray.shift();
+        if (patharray.length > 0) {
+            if (id in submenu === false) {
+                submenu[id] = {
+                    label: id,
+                    href: `#${id}`,
+                    submenu: {}
+                };
+            }
+            this.add_menu_item(patharray.join("/"), label, href, submenu[id].submenu);
+        }
+        else {
+            submenu[id] = { label, href, submenu: {} };
+        }
+    }
+    #toasts = [];
+    /**
+     * Zeigt eine Nachrichtenblase für eine kurze Dauer an
+     *
+     * @param message Nachricht
+     * @param delay Anzeigedauer
+     * @param color Hintergrundfarbe
+     */
+    toast(message, delay = 1000, color = "#000") {
+        this.#toasts.push([message, delay, color]);
+    }
+    /**
+     * Gibt die Value des Daten-Arrays an einem Index aus
+     *
+     * @param index Index des in data
+     * @param escape Gibt an, wie die Zeichenfolge formatiert werden soll
+     */
+    generate_value(index, escape) {
+        switch (escape) {
+            case "html":
+                return this.htmlspecialchars(this.data[index].toString());
+            case "url":
+                return encodeURI(this.data[index].toString());
+            case "json":
+                return JSON.stringify(this.data[index]);
+            case "plain":
+            default:
+                if (index in this.data) {
+                    return "toString" in this.data[index] ? this.data[index].toString() : this.data[index];
+                }
+                return `Index '${index}' not found`;
+        }
+    }
+    /**
+     * Gibt die Version des Servers zurück
+     *
+     * @param escape Gibt an, wie die Zeichenfolge formatiert werden soll
+     */
+    generate_version(escape) {
+        return this.generate_value.call({ version: "Version: " + server.version + (server.online ? " (Online)" : " (Offline)") }, "version", escape);
+    }
+    /**
+     * Gibt die Copyright-Zeichenfolge des Servers zurück
+     *
+     * @param escape Gibt an, wie die Zeichenfolge formatiert werden soll
+     */
+    generate_copyright(escape) {
+        return this.generate_value.call({ copyright: server.getSetting("copyright") }, "copyright", escape);
+    }
+    /**
+     * Gibt die Version des Servers zurück
+     *
+     * @param escape Gibt an, wie die Zeichenfolge formatiert werden soll
+     */
+    generate_url(url = "", escape = "url") {
+        return this.generate_value.call({ url: server.scope + url }, "url", escape);
+    }
+    /**
+     *
+     * @param hidden
+     * @returns
+     */
+    generate_offline_switch(hidden) {
+        return `<input type="checkbox" name="switch_offline_mode" class="switch_offline_mode" onclick="navigator.serviceWorker.controller.postMessage({type:&quot;set-setting&quot;,property:&quot;offline-mode&quot;,value:this.checked})" ${server.getSetting("offline-mode") ? ' checked=""' : ""}${hidden == "true" ? "" : ' hidden="'}/>`;
+    }
+    /**
+     * Gibt den Inhalt des &lt;title&gt;-Tags aus
+     *
+     * @param mode full | page | site
+     * @return Inhalt des &lt;title&gt;-Tags
+     */
+    generate_title(mode) {
+        switch (mode) {
+            case "page":
+                return this.htmlspecialchars(this.page_title);
+            case "site":
+                return this.htmlspecialchars(this.site_title);
+            case "full":
+            default:
+                if (this.page_title) {
+                    return this.htmlspecialchars(this.page_title + " | " + this.site_title);
                 }
                 else {
-                    obj_id = Object.prototype.toString.call(prop).replace(/^\[object (.*)\]$/, "$1");
-                    let count = counters.get(obj_id) || 0;
-                    counters.set(obj_id, ++count);
-                    obj_id += "#" + count;
-                    props.set(prop, obj_id);
+                    return this.htmlspecialchars(this.site_title);
                 }
-                return `<details class="value-non-primitive" id="${scope.htmlspecialchars(encodeURIComponent(props.get(prop)))}"><summary>${prefix}<span class="value type-${typeof prop}">${obj_id}</span></summary>${[Object.getOwnPropertyNames(prop), Object.getOwnPropertySymbols(prop)].flat().map(key => {
-                    let desc = Object.getOwnPropertyDescriptor(prop, key);
-                    let html = "";
-                    if (typeof desc.get == "function") {
-                        html += `<div class="property-${desc.enumerable ? "" : "non-"}enumerable">${expand_property(desc.get, `<span class="property-key"><span class="property-descriptor">get</span> ${scope.htmlspecialchars(key.toString())}</span>: `)}</div>`;
-                    }
-                    if (typeof desc.set == "function") {
-                        html += `<div class="property-${desc.enumerable ? "" : "non-"}enumerable">${expand_property(desc.set, `<span class="property-key"><span class="property-descriptor">set</span> ${scope.htmlspecialchars(key.toString())}</span>: `)}</div>`;
-                    }
-                    if (typeof desc.get != "function" &&
-                        typeof desc.set != "function") {
-                        html += `<div class="property-${desc.enumerable ? "" : "non-"}enumerable">${expand_property(desc.value, `<span class="property-key">${desc.writable ? "" : `<span class="property-descriptor">readonly</span> `}${scope.htmlspecialchars(key.toString())}</span>: `)}</div>`;
-                    }
-                    return html;
-                }).join("") + `<div class="property-non-enumerable">${expand_property(Object.getPrototypeOf(prop), `<span class="property-key"><span class="property-descriptor">[[Prototype]]:</span></span> `)}`}</details>`;
-            }
-            else {
-                return `<div class="value-primitive">${prefix}<span class="value type-${typeof prop}">${scope.htmlspecialchars("" + prop)}</span></div>`;
+        }
+    }
+    /**
+     * Gibt die Stylesheets als &lt;link&gt;-Tags aus
+     *
+     * @return &lt;link&gt;-Tags
+     */
+    generate_styles() {
+        let html = "";
+        for (let index in this.#styles) {
+            let style = this.#styles[index];
+            html += "<link id=\"" + this.htmlspecialchars(style.id) + "\" rel=\"stylesheet\" href=\"" + this.htmlspecialchars(style.href) + "\" media=\"" + this.htmlspecialchars(style.media) + "\" type=\"" + this.htmlspecialchars(style.type) + "\" />";
+        }
+        return html;
+    }
+    /**
+     * Gibt das Skript als &lt;script&gt;-Tags aus
+     *
+     * @param data Daten-Array der build-Funktion
+     * @param position Gibt an, für welche Position die Skripte ausgegeben werden sollen
+     * @return &lt;script&gt;-Tags
+     */
+    generate_scripts(position = "head") {
+        let html = "";
+        for (let index in this.#scripts) {
+            let script = this.#scripts[index];
+            if (script.position == position) {
+                html += "<script id=\"" + this.htmlspecialchars(script.id) + "\" src=\"" + this.htmlspecialchars(script.src) + "\" type=\"" + this.htmlspecialchars(script.type) + "\"></script>";
             }
         }
-        main += `<div class="server"><h2>Server</h2>${expand_property(server)}</div>`;
-        main += `<div class="log">
+        ;
+        return html;
+    }
+    /**
+     * Gibt ein Menü aus
+     *
+     * @param data Daten-Array der build-Funktion
+     * @param index Index des Menüs
+     * @return
+     */
+    generate_menu(index) {
+        if (index in this.#menus) {
+            return this.build_menu(this.#menus[index].submenu);
+        }
+        else {
+            return `<p>Men&uuml; "${index}" wurde nicht gefunden!</p>`;
+        }
+    }
+    /**
+     * Gibt die Anzahl an Server-Log-Einträgen des angegebenen Types aus
+     *
+     * @param _data
+     * @param type
+     * @param hide_empty
+     * @returns
+     */
+    async generate_log_badge(type, hide_empty = "false") {
+        let options = {
+            log: false,
+            warn: false,
+            error: false
+        };
+        switch (type) {
+            case "log":
+                options.log = true;
+                break;
+            case "warn":
+                options.warn = true;
+                break;
+            case "error":
+                options.error = true;
+                break;
+        }
+        let entries = await server.getLog(options);
+        if (entries.length == 0 && hide_empty == "true") {
+            return "";
+        }
+        return `<span class="${this.htmlspecialchars(type)}-badge">${this.htmlspecialchars("" + entries.length)}</span>`;
+    }
+    /**
+     * Erstellt Toasts
+     */
+    generate_toasts() {
+        if (this.#toasts && this.#toasts.length > 0) {
+            return "<script type=\"text/javascript\">(async ()=>{let toasts=" + JSON.stringify(this.#toasts) + ";let toast;while(toast=toasts.shift()){await createToast(...toast);}})()</script>";
+        }
+        return "";
+    }
+}
+/**
+
+  generate_icons(_data: never) {
+    let max_size = "";
+    let max_width = 0;
+    let max_icon = "";
+    if (!this.icon) {
+      return "";
+    }
+    return Server.ICON_SIZES.map(size => {
+      let [width, height] = size.split("x");
+      let icon = this.icon.replace("${p}", "any").replace("${w}", width).replace("${h}", height);
+
+      if (Number(width) > max_width) {
+        max_size = size;
+        max_width = Number(width);
+        max_icon = icon;
+      }
+
+      return `<link rel="apple-touch-icon" sizes="${size}" href="${icon}" /><link rel="icon" sizes="${size}" href="${icon}" />`;
+    }).join("") + `<link rel="apple-touch-startup-image" sizes="${max_size}" href="${max_icon}" />`;
+  }
+
+ */ 
+/// <reference no-default-lib="true" />
+/// <reference path="../config.ts" />
+/// <reference path="../plugins/scope.ts" />
+server.registerRoute({
+    priority: 0,
+    type: "string",
+    string: server.scope + "/debug",
+    ignoreCase: true,
+    storage: "dynamic",
+    script: null,
+    function: server.scope + "/debug",
+    arguments: []
+});
+server.registerResponseFunction(server.scope + "/debug", async (request, args) => {
+    let scope = new Scope(request);
+    let files = {
+        "mpc.css": new CacheResponse(server.scope + "/client/css/mpc.css"),
+        "main.css": new CacheResponse(server.scope + "/client/css/main.css"),
+        "print.css": new CacheResponse(server.scope + "/client/css/print.css"),
+        "debug.css": new CacheResponse(server.scope + "/client/css/debug.css"),
+        "main.js": new CacheResponse(server.scope + "/client/js/main.js"),
+        "layout.html": new CacheResponse(server.scope + "/client/html/layout.html")
+    };
+    scope.add_style("mpc-css", files["mpc.css"]);
+    scope.add_style("main-css", files["main.css"]);
+    scope.add_style("print-css", files["print.css"], "print");
+    scope.add_style("debug-css", files["debug.css"]);
+    scope.add_script("main-js", files["main.js"]);
+    let main = "";
+    if (scope.GET.clear_logs == "1") {
+        await server.clearLog();
+    }
+    let props = new Map();
+    let counters = new Map();
+    function expand_property(prop, prefix = "") {
+        if (typeof prop == "function" ||
+            typeof prop == "object" && prop !== null) {
+            if (props.has(prop)) {
+                return `<div class="value-non-primitive">${prefix}<span class="value type-${typeof prop}"><a href="#${scope.htmlspecialchars(encodeURIComponent(props.get(prop)))}">${props.get(prop)}</a></span></div>`;
+            }
+            let obj_id;
+            if (typeof prop == "function") {
+                obj_id = scope.htmlspecialchars(prop.toString().split(" ", 1)[0] == "class" ? "class" : "function") + " " + scope.htmlspecialchars(prop.name);
+                let count = counters.get(obj_id) || 0;
+                counters.set(obj_id, ++count);
+                obj_id += `#${count}(${scope.htmlspecialchars(prop.length)} argument${prop.length == 1 ? "" : "s"})`;
+                props.set(prop, obj_id);
+            }
+            else {
+                obj_id = Object.prototype.toString.call(prop).replace(/^\[object (.*)\]$/, "$1");
+                let count = counters.get(obj_id) || 0;
+                counters.set(obj_id, ++count);
+                obj_id += "#" + count;
+                props.set(prop, obj_id);
+            }
+            return `<details class="value-non-primitive" id="${scope.htmlspecialchars(encodeURIComponent(props.get(prop)))}"><summary>${prefix}<span class="value type-${typeof prop}">${obj_id}</span></summary>${[Object.getOwnPropertyNames(prop), Object.getOwnPropertySymbols(prop)].flat().map(key => {
+                let desc = Object.getOwnPropertyDescriptor(prop, key);
+                let html = "";
+                if (typeof desc.get == "function") {
+                    html += `<div class="property-${desc.enumerable ? "" : "non-"}enumerable">${expand_property(desc.get, `<span class="property-key"><span class="property-descriptor">get</span> ${scope.htmlspecialchars(key.toString())}</span>: `)}</div>`;
+                }
+                if (typeof desc.set == "function") {
+                    html += `<div class="property-${desc.enumerable ? "" : "non-"}enumerable">${expand_property(desc.set, `<span class="property-key"><span class="property-descriptor">set</span> ${scope.htmlspecialchars(key.toString())}</span>: `)}</div>`;
+                }
+                if (typeof desc.get != "function" &&
+                    typeof desc.set != "function") {
+                    html += `<div class="property-${desc.enumerable ? "" : "non-"}enumerable">${expand_property(desc.value, `<span class="property-key">${desc.writable ? "" : `<span class="property-descriptor">readonly</span> `}${scope.htmlspecialchars(key.toString())}</span>: `)}</div>`;
+                }
+                return html;
+            }).join("") + `<div class="property-non-enumerable">${expand_property(Object.getPrototypeOf(prop), `<span class="property-key"><span class="property-descriptor">[[Prototype]]:</span></span> `)}`}</details>`;
+        }
+        else {
+            return `<div class="value-primitive">${prefix}<span class="value type-${typeof prop}">${scope.htmlspecialchars("" + prop)}</span></div>`;
+        }
+    }
+    main += `<div class="server"><h2>Server</h2>${expand_property(server)}</div>`;
+    main += `<div class="log">
   <h2>Log</h2>
   <input type="checkbox" id="hide_log" hidden />
   <input type="checkbox" id="hide_warn" hidden />
   <input type="checkbox" id="hide_error" hidden />
-  ${(await server.get_log()).map(entry => `<details class="log-${this.htmlspecialchars("" + entry.type)}">
-    <summary><span class="timestamp">${this.htmlspecialchars(date("d.m.Y h:i:s", entry.timestamp))}</span> ${this.htmlspecialchars("" + entry.message)}</summary>
-    <pre>${this.htmlspecialchars("" + entry.stack)}</pre>
+  ${(await server.getLog()).map(entry => `<details class="log-${scope.htmlspecialchars("" + entry.type)}">
+    <summary><span class="timestamp">${scope.htmlspecialchars(date("d.m.Y h:i:s", entry.timestamp))}</span> ${scope.htmlspecialchars("" + entry.message)}</summary>
+    <pre>${scope.htmlspecialchars("" + entry.stack)}</pre>
   </details>`).join("\n")}
   <div class="sticky-footer">
-    <a class="mpc-button" href="${Server.APP_SCOPE}/debug?clear_logs=1">Alles l&ouml;schen</a>
-    <label class="mpc-button" for="hide_log">Log ${await this.generate_log_badge(null, "log")}</label>
-    <label class="mpc-button" for="hide_warn">Warnungen ${await this.generate_log_badge(null, "warn")}</label>
-    <label class="mpc-button" for="hide_error">Fehler ${await this.generate_log_badge(null, "error")}</label>
+    <a class="mpc-button" href="${server.scope}/debug?clear_logs=1">Alles l&ouml;schen</a>
+    <label class="mpc-button" for="hide_log">Log ${await scope.generate_log_badge("log")}</label>
+    <label class="mpc-button" for="hide_warn">Warnungen ${await scope.generate_log_badge("warn")}</label>
+    <label class="mpc-button" for="hide_error">Fehler ${await scope.generate_log_badge("error")}</label>
   </div>
-</div>`;
-        return await this.build({
-            page_title: "Debug ServiceWorker",
-            main,
-        }, await this.files["layout.html"].text());
-    }
+  </div>`;
+    scope.page_title = "Server Log";
+    scope.data = { main };
+    return scope.toResponse(files["layout.html"]);
 });
 /// <reference no-default-lib="true" />
 /// <reference path="../config.ts" />
-server.registerRoute(Server.APP_SCOPE + "/index.html", {
-    response: server.createRedirection(Server.APP_SCOPE + "/")
+server.registerRoute({
+    type: "regexp",
+    regexp: new RegExp("^" + server.regex_safe_scope + "\\/(index(.[a-z0-9]+)?)?$", "g"),
+    storage: "dynamic",
+    script: null,
+    function: server.scope + "/index.html",
+    arguments: []
 });
-server.registerRoute(Server.APP_SCOPE, {
-    response: server.createRedirection(Server.APP_SCOPE + "/")
-});
-server.registerRoute(Server.APP_SCOPE + "/", {
-    files: {
-        "mpc.css": Server.APP_SCOPE + "/client/css/mpc.css",
-        "main.css": Server.APP_SCOPE + "/client/css/main.css",
-        "print.css": Server.APP_SCOPE + "/client/css/print.css",
-        "main.js": Server.APP_SCOPE + "/client/js/main.js",
-        "layout.html": Server.APP_SCOPE + "/client/html/layout.html"
-    },
-    async response() {
-        this.add_style("mpc-css", this.files["mpc.css"].url);
-        this.add_style("main-css", this.files["main.css"].url);
-        this.add_style("print-css", this.files["print.css"].url, "print");
-        this.add_script("main-js", this.files["main.js"].url);
-        return await this.build({
-            page_title: "Startseite",
-            main: `<ul>
-  <li><a href="/train">Trainieren</a></li>
-  <li><a href="/debug">Debug</a></li>
-  <li><a href="/list">Liste</a></li>
+server.registerResponseFunction(server.scope + "/index.html", async (request, args) => {
+    let files = {
+        "mpc.css": new CacheResponse(server.scope + "/client/css/mpc.css"),
+        "main.css": new CacheResponse(server.scope + "/client/css/main.css"),
+        "print.css": new CacheResponse(server.scope + "/client/css/print.css"),
+        "main.js": new CacheResponse(server.scope + "/client/js/main.js"),
+        "layout.html": new CacheResponse(server.scope + "/client/html/layout.html")
+    };
+    let scope = new Scope(request);
+    scope.add_style("mpc-css", this.files["mpc.css"]);
+    scope.add_style("main-css", this.files["main.css"]);
+    scope.add_style("print-css", this.files["print.css"], "print");
+    scope.add_script("main-js", this.files["main.js"]);
+    scope.page_title = "Startseite";
+    scope.data = {
+        main: `<ul>
+<li><a href="/train">Trainieren</a></li>
+<li><a href="/debug">Debug</a></li>
+<li><a href="/list">Liste</a></li>
 </ul>`,
-        }, await this.files["layout.html"].text());
-    }
+    };
+    return new Response(await this.build(files["layout.html"]), scope);
 });
 /// <reference no-default-lib="true" />
 /// <reference path="../config.ts" />
-server.registerRoute(Server.APP_SCOPE + "/install.html", {
-    response: server.createRedirection(Server.APP_SCOPE + "/")
-});
-/// <reference no-default-lib="true" />
-/// <reference path="server/index.ts" />
-let idb = new IndexedDB("voc", 2, {
-    vocabulary: {
-        name: "vocabulary",
-        keyPath: "id",
-        autoIncrement: false,
-        indices: [
-            { name: "by_lesson", keyPath: "lesson", multiEntry: false, unique: false },
-            { name: "by_german", keyPath: "german", multiEntry: true, unique: false },
-            { name: "by_hebrew", keyPath: "hebrew", multiEntry: false, unique: false },
-            { name: "by_tries", keyPath: "tries", multiEntry: false, unique: false },
-            { name: "by_points", keyPath: "points", multiEntry: false, unique: false },
-            { name: "by_fails", keyPath: "fails", multiEntry: false, unique: false },
-            { name: "is_well_known", keyPath: "is_well_known", multiEntry: false, unique: false },
-            { name: "is_known", keyPath: "is_known", multiEntry: false, unique: false },
-            { name: "is_unknown", keyPath: "is_unknown", multiEntry: false, unique: false }
-        ]
-    },
-    lessons: {
-        name: "lessons",
-        keyPath: "number",
-        autoIncrement: false,
-        indices: []
-    },
-    vocabulary_sets: {
-        name: "vocabulary_sets",
-        keyPath: "id",
-        autoIncrement: false,
-        indices: [
-            { name: "by_points", keyPath: "points", multiEntry: false, unique: false },
-            { name: "is_well_known", keyPath: "is_well_known", multiEntry: false, unique: false },
-            { name: "is_known", keyPath: "is_known", multiEntry: false, unique: false },
-            { name: "is_unknown", keyPath: "is_unknown", multiEntry: false, unique: false }
-        ]
-    }
-});
-async function update_lessons() {
-    let server_lessons = await server.apiFetch("get_lessons");
-    let local_lessons = (await idb.get("lessons")).map(a => a.number);
-    let new_lessons = server_lessons.filter(a => local_lessons.indexOf(a) < 0);
-    if (new_lessons.length > 0) {
-        let i = 0;
-        let l = new_lessons.length;
-        for (i; i < l; i++) {
-            await add_lesson(new_lessons[i]);
-        }
-        return l;
-    }
-    return 0;
-}
-async function add_lesson(lesson) {
-    let lesson_text = await server.apiFetch("get_lesson", [lesson]);
-    if (lesson_text === false) {
-        return false;
-    }
-    let sets = new Set();
-    if ((await idb.count("vocabulary_sets")) > 0) {
-        (await idb.get("vocabulary_sets")).forEach(set => {
-            sets.add(set.id);
-        });
-    }
-    await Promise.all(lesson_text.replace(/\r/g, "").split("\n").map(async (line) => {
-        let entry = line.split("\t");
-        if (entry.length < 8) {
-            return false;
-        }
-        if (!sets.has(entry[2] + "-" + entry[3])) {
-            sets.add(entry[2] + "-" + entry[3]);
-            await idb.add("vocabulary_sets", {
-                id: entry[2] + "-" + entry[3],
-                lesson: Number(entry[2]),
-                points: 0,
-                tries: 0
-            });
-        }
-        await idb.add("vocabulary", {
-            lesson: Number(entry[0]),
-            id: entry[0] + "-" + entry[1],
-            set_id: entry[2] + "-" + entry[3],
-            german: (entry[4] || "").normalize("NFD").split("; "),
-            transcription: (entry[5] || "").normalize("NFD"),
-            hebrew: (entry[6] || "").normalize("NFD"),
-            hints_german: (entry[7] || "").normalize("NFD").split("; "),
-            hints_hebrew: (entry[7] || "").normalize("NFD").split("; ").map(hint => {
-                switch (hint) {
-                    case "m.Sg.":
-                        return "ז'";
-                    case "f.Sg.":
-                        return "נ'";
-                    case "m.Pl.":
-                        return "ז\"ר";
-                    case "f.Pl.":
-                        return "נ\"ר";
-                    case "ugs.":
-                        return "\u05e1'";
-                    default:
-                        return hint;
-                }
-            }),
-            tries: 0
-        });
-    }));
-    await idb.add("lessons", {
-        name: "Lesson " + lesson,
-        number: Number(lesson)
-    });
-    return true;
-}
-server.addEventListener("ping", event => {
-    event.data.await(update_lessons());
-});
-server.addEventListener("beforestart", event => {
-    event.data.await(idb.ready);
-});
-/// <reference no-default-lib="true" />
-/// <reference path="../main.ts" />
-// Möglichkeit, ein globales Navigationsmenü zu erstellen über die Unterseiten
-// Jede Unterseite kann sich alleine hinzufügen (durch einen dezimal-Wert kann die eigene Position geregelt werden)
-server.registerRoute(Server.APP_SCOPE + "/list", {
-    files: {
-        "mpc.css": Server.APP_SCOPE + "/client/css/mpc.css",
-        "main.css": Server.APP_SCOPE + "/client/css/main.css",
-        "print.css": Server.APP_SCOPE + "/client/css/print.css",
-        "list.css": Server.APP_SCOPE + "/client/css/list.css",
-        "main.js": Server.APP_SCOPE + "/client/js/main.js",
-        "layout.html": Server.APP_SCOPE + "/client/html/layout.html"
-    },
-    async response() {
-        this.add_style("mpc-css", this.files["mpc.css"].url);
-        this.add_style("main-css", this.files["main.css"].url);
-        this.add_style("print-css", this.files["print.css"].url, "print");
-        this.add_style("list-css", this.files["list.css"].url);
-        this.add_script("main-js", this.files["main.js"].url);
-        let main = ``;
-        let unknown_items_count = await idb.index("vocabulary_sets", "is_unknown").count();
-        let well_known_items_count = await idb.index("vocabulary_sets", "is_well_known").count();
-        let known_items_count = await idb.index("vocabulary_sets", "is_known").count();
-        let items_count = await idb.count("vocabulary_sets");
-        let tried_items_count = known_items_count + unknown_items_count + well_known_items_count;
-        let new_items_count = items_count - tried_items_count;
-        let lessons = await idb.get("lessons");
-        let range = [];
-        if (unknown_items_count > 20) {
-            range.push(...Array(45).fill("unknown"));
-        }
-        else if (unknown_items_count > 5) {
-            range.push(...Array(25).fill("unknown"));
-        }
-        else if (unknown_items_count > 0) {
-            range.push(...Array(15).fill("unknown"));
-        }
-        if (known_items_count > 20) {
-            range.push(...Array(45).fill("known"));
-        }
-        else if (known_items_count > 5) {
-            range.push(...Array(25).fill("known"));
-        }
-        else if (known_items_count > 0) {
-            range.push(...Array(15).fill("known"));
-        }
-        let range_length = range.length;
-        if (well_known_items_count >= 25) {
-            range.push(...Array(25).fill("well-known"));
-        }
-        else {
-            range.push(...Array(well_known_items_count).fill("well-known"));
-        }
-        range_length = range.length;
-        if (new_items_count > 0) {
-            range.push(...Array(25).fill("new"));
-        }
-        range.push(...Array(25).fill("random"));
-        if (range_length < 100) {
-            range.push(...Array(100 - range_length).fill("random"));
-        }
-        main += `<table>
-  <caption>Übersicht über Lektionen</caption>
-  <thead>
-    <tr>
-      <th>Lektion</th>
-      <th>Schwierige Wörter</th>
-      <th>Bekannte Wörter</th>
-      <th>Einfache Wörter</th>
-      <th>Neue Wörter</th>
-      <th>Gesamte Wörter</th>
-    </tr>
-  </thead>
-  <tbody>` + (await Promise.all(lessons.map(async (lesson) => {
-            let unknown_entry_sets = 0;
-            let known_entry_sets = 0;
-            let well_known_entry_sets = 0;
-            let new_entry_sets = 0;
-            let entry_sets = await idb.count("vocabulary_sets", entry_set => {
-                if (entry_set.lesson == lesson.number) {
-                    if (entry_set.is_unknown) {
-                        unknown_entry_sets++;
-                    }
-                    else if (entry_set.is_known) {
-                        known_entry_sets++;
-                    }
-                    else if (entry_set.is_well_known) {
-                        well_known_entry_sets++;
-                    }
-                    else {
-                        new_entry_sets++;
-                    }
-                    return true;
-                }
-                return false;
-            });
-            return `
-    <tr>
-      <th><a href="list?lesson=${lesson.number}">Lektion ${lesson.number}</a></td>
-      <td>${unknown_entry_sets}</td>
-      <td>${known_entry_sets}</td>
-      <td>${well_known_entry_sets}</td>
-      <td>${new_entry_sets}</td>
-      <td>${entry_sets}</td>
-    </tr>`;
-        }))).join("") + `
-  </tbody>
-  <tfoot>
-    <tr>
-      <th><a href="list">Alle Lektionen</a></td>
-      <th>${unknown_items_count} (${Math.round(unknown_items_count / items_count * 100)}%)</th>
-      <th>${known_items_count} (${Math.round(known_items_count / items_count * 100)}%)</th>
-      <th>${well_known_items_count} (${Math.round(well_known_items_count / items_count * 100)}%)</th>
-      <th>${new_items_count} (${Math.round(new_items_count / items_count * 100)}%)</th>
-      <th>${items_count}</th>
-    </tr>
-    <tr>
-      <th>Wahrscheinlichkeiten beim Trainieren</td>
-      <td>${range.filter(a => a == "unknown").length} (${Math.round(range.filter(a => a == "unknown").length / range.length * 100)}%)</td>
-      <td>${range.filter(a => a == "known").length} (${Math.round(range.filter(a => a == "known").length / range.length * 100)}%)</td>
-      <td>${range.filter(a => a == "well-known").length} (${Math.round(range.filter(a => a == "well-known").length / range.length * 100)}%)</td>
-      <td>${range.filter(a => a == "new").length} (${Math.round(range.filter(a => a == "new").length / range.length * 100)}%)</td>
-      <td>${range.filter(a => a == "random").length} (${Math.round(range.filter(a => a == "random").length / range.length * 100)}%)</td>
-    </tr>
-  </tfoot>
-</table>`;
-        if ("lesson" in this.GET) {
-            let unknown_items = [];
-            let known_items = [];
-            let well_known_items = [];
-            let tried_items = [];
-            let new_items = [];
-            let items = await idb.get("vocabulary_sets", { lesson: this.GET.lesson });
-            items_count = items.length;
-            items.forEach(entry_set => {
-                if (entry_set.is_unknown) {
-                    unknown_items.push(entry_set);
-                }
-                else if (entry_set.is_known) {
-                    known_items.push(entry_set);
-                }
-                else if (entry_set.is_well_known) {
-                    well_known_items.push(entry_set);
-                }
-                if (entry_set.tries == 0) {
-                    new_items.push(entry_set);
-                }
-                else {
-                    tried_items.push(entry_set);
-                }
-            });
-            async function createTable(entry_sets, title) {
-                let entries = [];
-                let esi = 0;
-                let esl = entry_sets.length;
-                for (esi; esi < esl; esi++) {
-                    let entry_set_entries = await idb.get("vocabulary", { set_id: entry_sets[esi].id });
-                    let esei = 0;
-                    let esel = entry_set_entries.length;
-                    for (esei; esei < esel; esei++) {
-                        let entry = entry_set_entries[esei];
-                        entries.push(`
-    <tr>
-      <td lang="heb">${entry.hebrew}</td>
-      <td lang="und">${entry.transcription}</td>
-      <td lang="deu">${entry.german.join(" / ")}</td>
-      <td>${entry.hints_german.join(" / ")}</td>
-      <td>${entry.tries}${entry.fails ? ` <i>(-${entry.fails})</i>` : ""}</td>
-      <td>${entry_sets[esi].points}</td>
-    </tr>`);
-                    }
-                }
-                return `<table>
-  <caption>${title} (${entry_sets.length})</caption>
-  <thead>
-    <tr>
-      <th>Hebräisch</th>
-      <th>Lautschrift</th>
-      <th>Deutsch</th>
-      <th>Hinweise</th>
-      <th>Versuche</th>
-      <th>Punkte</th>
-    </tr>
-  </thead>
-  <tbody>` + entries.join("") + `
-  </tbody>
-</table>`;
-            }
-            main += `<h2>Übersicht: Lektion ${this.GET.lesson}</h2>`;
-            if (unknown_items.length > 0) {
-                main += await createTable(unknown_items, "Schwierige Wörter");
-            }
-            if (known_items.length > 0) {
-                main += await createTable(known_items, "Bekannte Wörter");
-            }
-            if (well_known_items.length > 0) {
-                main += await createTable(well_known_items, "Einfache Wörter");
-            }
-            if (new_items.length > 0) {
-                main += await createTable(new_items, "Untrainierte Wörter");
-            }
-        }
-        return await this.build({
-            page_title: "Vokabel-Trainer",
-            main
-        }, await this.files["layout.html"].text());
-    }
-});
+server.registerRedirection({
+    type: "regexp",
+    regexp: new RegExp("^" + server.regex_safe_scope + "/install(.[a-z0-9]+)?$", "i")
+}, "/");
 /// <reference no-default-lib="true" />
 /// <reference path="../config.ts" />
-server.registerRoute(Server.APP_SCOPE + "/manifest.webmanifest", {
-    icon: Server.APP_SCOPE + "/client/png/index/${p}/${w}-${h}.png",
-    response() {
-        let manifest = {
-            name: server.getSetting("site-title"),
-            short_name: server.getSetting("site-title"),
-            start_url: Server.APP_SCOPE + "/",
-            display: "standalone",
-            background_color: server.getSetting("theme-color"),
-            theme_color: server.getSetting("theme-color"),
-            description: server.getSetting("site-title") + "\n" + server.getSetting("copyright"),
-            lang: "de-DE",
-            orientation: "natural",
-            icons: [],
-            shortcuts: []
-        };
-        let logged_in = server.is_logged_in();
-        Server.ICON_SIZES.forEach(size => {
-            let [width, height] = size.split("x");
-            Server.ICON_PURPOSES.forEach(purpose => {
-                manifest.icons.push({
-                    src: Server.APP_SCOPE + "/client/png/index/${p}/${w}-${h}.png".replace("${p}", purpose).replace("${w}", width).replace("${h}", height),
-                    sizes: size,
-                    type: "image/png",
-                    purpose: purpose
-                });
-            });
-        });
-        logged_in && server.iterateRoutes((route, pathname) => {
-            if (route == "cache") {
-                return;
-            }
-            if (route.is_shortcut) {
-                manifest.shortcuts.push({
-                    name: route.label,
-                    url: pathname,
-                    icons: route.icon ? Server.ICON_SIZES.map(size => {
-                        let [width, height] = size.split("x");
-                        return Server.ICON_PURPOSES.map(purpose => {
-                            return route.icon.replace("${p}", purpose).replace("${w}", width).replace("${h}", height);
-                        });
-                    }).flat() : manifest.icons
-                });
-            }
-        });
-        return JSON.stringify(manifest);
-    }
+server.registerRoute({
+    priority: 0,
+    type: "string",
+    string: server.scope + "/manifest.webmanifest",
+    ignoreCase: true,
+    storage: "dynamic",
+    script: null,
+    function: server.scope + "/manifest.webmanifest",
+    arguments: []
 });
-/// <reference no-default-lib="true" />
-/// <reference path="../main.ts" />
-server.registerRoute(Server.APP_SCOPE + "/train", {
-    files: {
-        "mpc.css": Server.APP_SCOPE + "/client/css/mpc.css",
-        "main.css": Server.APP_SCOPE + "/client/css/main.css",
-        "print.css": Server.APP_SCOPE + "/client/css/print.css",
-        "main.js": Server.APP_SCOPE + "/client/js/main.js",
-        "layout.html": Server.APP_SCOPE + "/client/html/layout.html",
-        "train.html": Server.APP_SCOPE + "/client/html/main/train.html",
-        "train.css": Server.APP_SCOPE + "/client/css/page/train.css",
-    },
-    async response() {
-        this.add_style("mpc-css", this.files["mpc.css"].url);
-        this.add_style("main-css", this.files["main.css"].url);
-        this.add_style("print-css", this.files["print.css"].url, "print");
-        this.add_script("main-js", this.files["main.js"].url);
-        this.add_style("train-css", this.files["train.css"].url);
-        if ("id" in this.GET &&
-            "hints_used" in this.GET &&
-            "known" in this.GET) {
-            let entry = (await idb.get("vocabulary", { id: this.GET.id }))[0];
-            if (entry) {
-                entry.tries += 1;
-                if (this.GET.known == -1) {
-                    entry.fails = (entry.fails || 0) + 1;
-                }
-                await idb.put("vocabulary", entry);
-                let entries = await idb.get("vocabulary", { set_id: entry.set_id });
-                let entry_set = (await idb.get("vocabulary_sets", { id: entry.set_id }))[0];
-                entry_set.points = (entry_set.points || 0) + Number(this.GET.known) - Number(this.GET.hints_used) * 0.5;
-                entry_set.tries++;
-                delete entry_set.is_well_known;
-                delete entry_set.is_known;
-                delete entry_set.is_unknown;
-                if (entry_set.points > 5) {
-                    entry_set.is_well_known = 1;
-                }
-                else if (entry_set.points > 0) {
-                    entry_set.is_known = 1;
-                }
-                else if (entry_set.points < 0) {
-                    entry_set.is_unknown = 1;
-                }
-                await idb.put("vocabulary_sets", entry_set);
-                await Promise.all(entries.map(async (entry) => {
-                    if (entry_set.points > 20) {
-                        delete entry.fails;
-                    }
-                    await idb.put("vocabulary", entry);
-                }));
-            }
-        }
-        let unknown_items_count = await idb.index("vocabulary_sets", "is_unknown").count();
-        let well_known_items_count = await idb.index("vocabulary_sets", "is_well_known").count();
-        let known_items_count = await idb.index("vocabulary_sets", "is_known").count();
-        let items_count = await idb.count("vocabulary_sets");
-        let tried_items_count = known_items_count + unknown_items_count + well_known_items_count;
-        let new_items_count = items_count - tried_items_count;
-        let range = [];
-        if (unknown_items_count > 20) {
-            range.push(...Array(45).fill("unknown"));
-        }
-        else if (unknown_items_count > 5) {
-            range.push(...Array(25).fill("unknown"));
-        }
-        else if (unknown_items_count > 0) {
-            range.push(...Array(15).fill("unknown"));
-        }
-        if (known_items_count > 20) {
-            range.push(...Array(45).fill("known"));
-        }
-        else if (known_items_count > 5) {
-            range.push(...Array(25).fill("known"));
-        }
-        else if (known_items_count > 0) {
-            range.push(...Array(15).fill("known"));
-        }
-        let range_length = range.length;
-        if (well_known_items_count >= 25) {
-            range.push(...Array(25).fill("well-known"));
-        }
-        else {
-            range.push(...Array(well_known_items_count).fill("well-known"));
-        }
-        range_length = range.length;
-        if (new_items_count > 0) {
-            range.push(...Array(25).fill("new"));
-        }
-        range.push(...Array(25).fill("random"));
-        if (range_length < 100) {
-            range.push(...Array(100 - range_length).fill("random"));
-        }
-        let item = null;
-        let index = rndInt(0, range.length - 1);
-        let entry = null;
-        let entries = null;
-        let entry_sets = null;
-        switch (range[index]) {
-            case "known":
-                entry_sets = await idb.index("vocabulary_sets", "is_known").get();
-                break;
-            case "new":
-                entry_sets = await idb.get("vocabulary_sets", { tries: 0 });
-                break;
-            case "random":
-                entry_sets = await idb.get("vocabulary_sets");
-                break;
-            case "unknown":
-                entry_sets = await idb.index("vocabulary_sets", "is_unknown").get();
-                break;
-            case "well-known":
-                entry_sets = await idb.index("vocabulary_sets", "is_well_known").get();
-                break;
-        }
-        entries = await idb.get("vocabulary", { set_id: entry_sets[rndInt(0, entry_sets.length - 1)].id });
-        entry = entries[rndInt(0, entries.length - 1)];
-        if (entry) {
-            item = {
-                id: entry.id,
-                german: entry.german.join(" / "),
-                hebrew: entry.hebrew,
-                hint_german: entry.hints_german.join(" / "),
-                hint_hebrew: entry.hints_hebrew.join(" / "),
-                hint_lesson: entry.lesson.toString(),
-                hint_transcription: entry.transcription,
-                hint_tries: entry.tries,
-                hint_points: (await idb.get("vocabulary_sets", { id: entry.set_id }))[0].points
-            };
-        }
-        else {
-            item = {
-                id: "",
-                german: "Eintrag nicht gefunden",
-                hebrew: "Eintrag nicht gefunden",
-                hint_german: "",
-                hint_hebrew: "",
-                hint_lesson: "",
-                hint_transcription: "",
-                hint_tries: 0,
-                hint_points: 0
-            };
-        }
-        let main = await this.build(item, await this.files["train.html"].text());
-        return await this.build({
-            page_title: "Vokabel-Trainer",
-            main
-        }, await this.files["layout.html"].text());
-    }
+server.registerResponseFunction(server.scope + "/manifest.webmanifest", (request, args) => {
+    let manifest = {
+        name: server.getSetting("site-title"),
+        short_name: server.getSetting("site-title"),
+        start_url: server.scope + "/",
+        display: "standalone",
+        background_color: server.getSetting("theme-color"),
+        theme_color: server.getSetting("theme-color"),
+        description: server.getSetting("site-title") + "\n" + server.getSetting("copyright"),
+        lang: "de-DE",
+        orientation: "natural",
+        icons: [],
+        shortcuts: []
+    };
+    // let logged_in = server.is_logged_in();
+    // Server.ICON_SIZES.forEach(size => {
+    //   let [width, height] = size.split("x");
+    //   Server.ICON_PURPOSES.forEach(purpose => {
+    //     manifest.icons.push({
+    //       src: Server.APP_SCOPE + "/client/png/index/${p}/${w}-${h}.png".replace("${p}", purpose).replace("${w}", width).replace("${h}", height),
+    //       sizes: size,
+    //       type: "image/png",
+    //       purpose: purpose
+    //     });
+    //   });
+    // });
+    // logged_in && server.iterateRoutes((route, pathname) => {
+    //   if (route == "cache") {
+    //     return;
+    //   }
+    //   if (route.is_shortcut) {
+    //     manifest.shortcuts.push({
+    //       name: route.label,
+    //       url: pathname,
+    //       icons: route.icon ? Server.ICON_SIZES.map(size => {
+    //         let [width, height] = size.split("x");
+    //         return Server.ICON_PURPOSES.map(purpose => {
+    //           return route.icon.replace("${p}", purpose).replace("${w}", width).replace("${h}", height);
+    //         });
+    //       }).flat() : manifest.icons
+    //     });
+    //   }
+    // });
+    return new Response(JSON.stringify(manifest));
 });
-/**
- *
- * @param min inklusive min
- * @param max inclusive max
- * @returns min <= random number <= max
- */
-function rndInt(min, max) {
-    return Math.floor(min + Math.random() * (max - min + 1));
-}
 //# sourceMappingURL=serviceworker.js.map

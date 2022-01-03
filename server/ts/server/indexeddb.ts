@@ -1,7 +1,7 @@
 /// <reference no-default-lib="true" />
 /// <reference path="index.ts" />
 
-class IndexedDB<ObjectStoreDefinitionMap extends { [ObjectStoreName in string]: IDBDefinition<object, string> }> extends EventTarget {
+class IndexedDB<ObjectStoreDefinitionMap extends { [ObjectStoreName in string]: IDBDefinition<Record<string | number, IndexedDBSupportedDataTypes>, string> }> extends EventTarget {
   [Symbol.toStringTag] = "IndexedDB";
 
   static readonly STATE_CLOSED = 0;
@@ -472,12 +472,12 @@ class IndexedDB<ObjectStoreDefinitionMap extends { [ObjectStoreName in string]: 
         ) {
           if (
             query[property] instanceof RegExp &&
-            !query[property].test(record[property])
+            !(<RegExp>query[property]).test(<string>record[property])
           ) {
             return false;
           } else if (
             query[property] instanceof Array &&
-            query[property].length == 2 &&
+            (<Array<any>>query[property]).length == 2 &&
             record[property] < query[property][0] ||
             record[property] > query[property][1]
           ) {
@@ -631,7 +631,7 @@ interface IndexedDBEventMap<ObjectStoreDefinitionMap> {
   statechange: IndexedDBEvent<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap], keyof IndexedDBEventInitMap<keyof ObjectStoreDefinitionMap, ObjectStoreDefinitionMap[keyof ObjectStoreDefinitionMap]>>;
 }
 
-interface IDBDefinition<Record, IndexName extends string> {
+interface IDBDefinition<Record extends globalThis.Record<string | number, IndexedDBSupportedDataTypes>, IndexName extends string> {
   Records: Record;
   Indices: IndexName;
 }
@@ -651,5 +651,9 @@ interface IDBIndexConfiguration<IndexName extends string> {
 }
 
 type IndexedDBQuery<Record> = { [K in keyof Record]?: Record[K] | [string | number, string | number] | string | number | RegExp; }
-
 type IndexedDBRecord<Record> = Record;
+
+/** All Datatypes, that can be stored in an indexedDB. */
+type IndexedDBSupportedDataTypes = boolean | null | undefined | number | bigint | string | Boolean | String | Date | RegExp | Blob | File | FileList | ArrayBuffer | ArrayBufferView | ImageBitmap | ImageData | IndexedDBSupportedDataTypes[] | { [n in string | number]: IndexedDBSupportedDataTypes; };
+/** This additional Datatypes may be also supported. */
+type ExtendedIndexedDBSupportedDataTypes = IndexedDBSupportedDataTypes | ExtendedIndexedDBSupportedDataTypes[] | { [n in string | number]: ExtendedIndexedDBSupportedDataTypes; } | Map<IndexedDBSupportedDataTypes, IndexedDBSupportedDataTypes> | Set<IndexedDBSupportedDataTypes>;

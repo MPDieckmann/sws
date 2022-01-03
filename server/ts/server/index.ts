@@ -8,7 +8,6 @@
 /// <reference path="indexeddbevent.ts" />
 /// <reference path="serverevent.ts" />
 /// <reference path="server.ts" />
-/// <reference path="scope.ts" />
 /// <reference path="helper.ts" />
 
 // const DEBUG_MODE = "online";

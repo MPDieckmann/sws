@@ -25,11 +25,44 @@ interface Number {
 }
 
 String.prototype.toRegExp = function (this: string, flags: string = ""): RegExp {
-  return new RegExp(this.replace(/\s+/gm, " ").split(" ").map(string => string.replace(/([\\\/\[\]\{\}\?\*\+\.\^\$\(\)\:\=\!\|\,])/g, "\\$1")).join("|"), flags);
+  return new RegExp(this.replace(/([\\\/\[\]\{\}\?\*\+\.\^\$\(\)\:\=\!\|\,])/g, "\\$1"), flags);
+}
+
+String.prototype.escape = function (this: string, escapable: string = "", escapeWith: string) {
+  return this.replace(new RegExp(escapable.replace(/([\\\/\[\]\{\}\?\*\+\.\^\$\(\)\:\=\!\|\,])/g, "\\$1"), "g"), escapeWith.replace(/([\\\/\[\]\{\}\?\*\+\.\^\$\(\)\:\=\!\|\,])/g, "\\$1") + "$1");
+}
+
+String.ESCAPE_REGEXP = "\\/[]{}?*+.^$():=!|,";
+
+interface StringConstructor {
+  ESCAPE_REGEXP: string;
 }
 
 interface String {
   toRegExp(flags?: string): RegExp;
+  escape(escapable?: string, escapeChar?: string): string;
+}
+
+interface EventTarget {
+  awaitEventListener(resolve_type: string): Promise<Event>;
+  awaitEventListener(resolve_type: string, reject_type: string): Promise<Event>;
+}
+
+EventTarget.prototype.awaitEventListener = function awaitEventListener(resolve_type: string, reject_type: string = "error"): Promise<Event> {
+  return new Promise((resolve, reject) => {
+    let resolveCallback = (event: Event) => {
+      resolve(event);
+      this.removeEventListener(resolve_type, resolveCallback);
+      this.removeEventListener(reject_type, rejectCallback);
+    }
+    let rejectCallback = (event: Event) => {
+      reject(event);
+      this.removeEventListener(resolve_type, resolveCallback);
+      this.removeEventListener(reject_type, rejectCallback);
+    }
+    this.addEventListener(resolve_type, resolveCallback, { once: true });
+    this.addEventListener(reject_type, rejectCallback, { once: true });
+  });
 }
 
 /**
@@ -61,6 +94,17 @@ function date(string: string, timestamp: number | string | Date = new Date): str
   }).join("");
 }
 namespace date {
+  
+  /**
+   * Überprüft, ob eine Zeichenkette ein gültiges Datum (nach dem angegebenen Datumsformat) darstellt
+   *
+   * @param date_string Die zu überprüfende Zeichenkette
+   * @param format Das Datumsformat
+   */
+  export function isValid(date_string: string, format: string = "Y-m-d") {
+    return date(format, date_string) == date_string;
+  }
+
   /**
    * Diese Zeichenfolgen werden von `date()` benutzt um die Wochentage darzustellen
    * 

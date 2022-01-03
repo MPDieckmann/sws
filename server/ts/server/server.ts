@@ -4,49 +4,28 @@
 class Server extends EventTarget {
   [Symbol.toStringTag] = "Server";
 
-  static readonly APP_SCOPE = registration.scope.replace(/\/$/, "");
-  static readonly API_URL = Server.APP_SCOPE + "/api.php";
-  static readonly API_VERSION = 2;
-  static readonly MPC_CACHE_NAME: string = "MPC-Server-Cache";
-  static readonly server: Server;
-  static readonly ICON_SIZES = [
-    "48x48",
-    "72x72",
-    "96x96",
-    "144x144",
-    "192x192",
-    "512x512"
-  ];
-  static readonly ICON_PURPOSES = [
-    "any",
-    "maskable",
-    "monochrome"
-  ];
-  static get VERSION() {
-    return (this.server && this.server.#VERSION) || "Fehler: Der ServiceWorker wurde noch nicht initialisiert!";
-  }
-
-  readonly #routes: Map<string, Route<any> | "cache"> = new Map();
-  readonly APP_SCOPE = Server.APP_SCOPE;
-  readonly API_URL = Server.API_URL;
-  readonly API_VERSION = Server.API_VERSION;
-  readonly MPC_CACHE_NAME = Server.MPC_CACHE_NAME;
-  readonly ready: PromiseLike<this>;
-  #pinging: boolean = false;
-  #connected: boolean = false;
-  // #online: boolean = typeof DEBUG_MODE == "string" ? DEBUG_MODE == "online" : navigator.onLine;
+  static readonly server: Server = new Server();
+  #version: string;
+  readonly #cacheName = "ServerCache-20211226";
+  readonly #scope = registration.scope.replace(/\/$/, "");
+  readonly #regex_safe_scope = registration.scope.escape(String.ESCAPE_REGEXP, "\\");
   #online: boolean = navigator.onLine;
-  #VERSION: string;
-  #settings: Map<keyof ServerSettingsMap, ServerSettingsMap[keyof ServerSettingsMap]> = new Map();
-  #start: Promise<null> & { resolve(value: null): void; };
   #idb = new IndexedDB<{
     settings: {
       Records: { key: keyof ServerSettingsMap, value: ServerSettingsMap[keyof ServerSettingsMap]; };
       Indices: "";
     }
+    routes: {
+      Records: Route;
+      Indices: "by_priority";
+    }
     log: {
-      Records: { type: string, message: string, stack: string, timestamp: number };
+      Records: { type: string, message: IndexedDBSupportedDataTypes, stack: IndexedDBSupportedDataTypes, timestamp: number };
       Indices: "by_type";
+    }
+    assets: {
+      Records: { id: string; blob: Blob; };
+      Indices: "";
     }
   }>("Server", 1, {
     settings: {
@@ -55,6 +34,14 @@ class Server extends EventTarget {
       keyPath: "key",
       indices: []
     },
+    routes: {
+      name: "routes",
+      autoIncrement: false,
+      keyPath: "path",
+      indices: [
+        { name: "by_priority", keyPath: "priority", multiEntry: false, unique: false }
+      ]
+    },
     log: {
       name: "log",
       autoIncrement: true,
@@ -62,48 +49,90 @@ class Server extends EventTarget {
       indices: [
         { name: "by_type", keyPath: "type", multiEntry: false, unique: false }
       ]
+    },
+    assets: {
+      name: "assets",
+      keyPath: "id",
+      autoIncrement: false,
+      indices: []
     }
   });
 
-  get version() { return this.#VERSION; }
-  get pinging() { return this.#pinging; }
-  get server_online() { return this.getSetting("offline-mode") ? false : this.#connected; }
-  get network_online() { return this.#online; }
+  get version() {
+    return this.#version;
+  }
+  get scope() {
+    return this.#scope;
+  }
+  get regex_safe_scope() {
+    return this.#regex_safe_scope;
+  }
+  get online() {
+    return this.#online;
+  }
 
+  readonly ready: Promise<this>;
+  #start: Promise<null> & { resolve(value: null): void; };
   constructor() {
     super();
 
     if (Server.server) {
       return Server.server;
     }
-    // @ts-ignore
-    Server.server = this;
+
+    this.#settingsListenerMap.set("offline-mode", (old_value, new_value) => {
+      if (old_value == new_value) {
+        return;
+      }
+      if (new_value) {
+        if (this.#online) {
+          this.#online = false;
+          this.dispatchEvent(new ServerEvent("offline", { cancelable: false, group: "network", data: null }));
+        }
+      } else {
+        if (navigator.onLine != this.#online) {
+          this.#online = navigator.onLine;
+          this.dispatchEvent(new ServerEvent(this.#online ? "online" : "offline", { cancelable: false, group: "network", data: null }));
+        }
+      }
+    });
+
+    navigator.connection.addEventListener("change", () => {
+      if (
+        !this.getSetting("offline-mode") &&
+        navigator.onLine != this.#online
+      ) {
+        this.#online = navigator.onLine;
+        this.dispatchEvent(new ServerEvent(this.#online ? "online" : "offline", { cancelable: false, group: "network", data: null }));
+      }
+    });
 
     addEventListener("install", event => event.waitUntil(this.install()));
     addEventListener("message", event => event.waitUntil(this.message(event.data, event.source)));
     addEventListener("activate", event => event.waitUntil(this.activate()));
     addEventListener("fetch", event => event.respondWith(this.fetch(event.request)));
 
-    navigator.connection.addEventListener("change", () => {
-      // this.#online = typeof DEBUG_MODE == "string" ? DEBUG_MODE == "online" : navigator.onLine;
-      this.#online = navigator.onLine;
-      if (this.#online) {
-        this.#connected = true;
-        if (this.#pinging) {
-          this.awaitEventListener(this, "afterping").then(() => this.ping());
-        } else {
-          this.ping();
-        }
-      }
-    });
-
     let _resolve: (value: null) => void;
     this.#start = <Promise<null> & { resolve(value: null): void; }>new Promise(resolve => _resolve = resolve);
     this.#start.resolve = _resolve;
 
-    this.registerRoute(Server.APP_SCOPE + "/serviceworker.js", "cache");
-
     this.ready = (async () => {
+      await Promise.all((await this.#idb.get("settings")).map(async record => {
+        this.#settings.set(record.key, record.value);
+        if (this.#settingsListenerMap.has(record.key)) {
+          await this.#settingsListenerMap.get(record.key)(record.value, record.value);
+        }
+      }));
+
+      await this.#idb.put("routes", {
+        priority: 0,
+        type: "string",
+        string: this.#scope + "/serviceworker.js",
+        ignoreCase: true,
+        storage: "cache",
+        key: this.#scope + "/serviceworker.js"
+      });
+
       let promises: PromiseLike<void>[] = [];
       this.dispatchEvent(new ServerEvent("beforestart", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
       await Promise.all(promises);
@@ -114,68 +143,30 @@ class Server extends EventTarget {
       await Promise.all(promises);
       return this;
     })();
-
-    this.#idb.get("settings").then(values => {
-      values.forEach(record => {
-        this.#settings.set(record.key, record.value);
-      });
-    });
   }
 
-  async #log(type: string, message: string, stack: string): Promise<void> {
-    await this.#idb.put("log", {
-      timestamp: Date.now(),
-      type,
-      message,
-      stack
-    });
-  }
-
-  async log(message: string, stack: string = null): Promise<void> {
-    console.log(message, stack);
-    await this.#log("log", message, stack);
-  }
-  async warn(message: string, stack: string = null): Promise<void> {
-    console.warn(message, stack);
-    await this.#log("warn", message, stack);
-  }
-  async error(message: string, stack: string = null): Promise<void> {
-    console.error(message, stack);
-    await this.#log("error", message, stack);
-  }
-  async clear_log(): Promise<void> {
-    await this.#idb.delete("log");
-    this.#log("clear", "Das Protokoll wurde erfolgreich gelöscht", null);
-    console.clear();
-  }
-  async get_log(types: {
-    log?: boolean;
-    warn?: boolean;
-    error?: boolean;
-  } = {
-      log: true,
-      warn: true,
-      error: true
-    }): Promise<{
-      type: string;
-      message: string;
-      stack: string;
-      timestamp: number;
-    }[]> {
-    if (types.log && types.warn && types.error) {
-      return this.#idb.get("log");
-    } else {
-      let type_array = [];
-      types.log && type_array.push("log");
-      types.warn && type_array.push("warn");
-      types.error && type_array.push("error");
-      return this.#idb.get("log", {
-        type: new RegExp("^(" + type_array.join("|") + ")$")
-      });
+  #loadedScripts: Map<string, any> = new Map([
+    [null, null]
+  ]);
+  async #loadScript(id: string) {
+    if (!this.#loadedScripts.has(id)) {
+      let assets = await this.#idb.get("assets", { id });
+      if (assets.length > 0) {
+        let blob = assets[0].blob;
+        if (/(text|application)\/javascript/.test(blob.type)) {
+          let result = await eval.call(self, await blob.text());
+          this.#loadedScripts.set(id, result);
+        } else {
+          throw new DOMException(`Failed to load script: ${id}\nScripts mime type is not supported.`, `UnsupportedMimeType`);
+        }
+      } else {
+        throw new DOMException(`Failed to load script: ${id}\nScript not found.`, `FileNotFound`);
+      }
     }
+    return this.#loadedScripts.get(id);
   }
 
-  async install() {
+  async install(): Promise<void> {
     // console.log("server called 'install'", { server, routes: this.#routes });
     let promises: PromiseLike<void>[] = [];
     this.dispatchEvent(new ServerEvent("beforeinstall", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
@@ -190,7 +181,7 @@ class Server extends EventTarget {
     this.dispatchEvent(new ServerEvent("afterinstall", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
     await Promise.all(promises);
   }
-  async update() {
+  async update(): Promise<boolean> {
     // console.log("server called 'update'", { server, routes: this.#routes });
     let promises: PromiseLike<void>[] = [];
     this.dispatchEvent(new ServerEvent("beforeupdate", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
@@ -200,39 +191,52 @@ class Server extends EventTarget {
     await Promise.all(promises);
     promises.splice(0, promises.length);
     try {
-      await caches.delete(this.MPC_CACHE_NAME);
+      await caches.delete(this.#cacheName);
       this.log("Cache erfolgreich gelöscht");
-      let cache = await caches.open(this.MPC_CACHE_NAME);
-      await Promise.all(Array.from(this.#routes).map(([pathname, value]) => {
-        if (value == "cache") {
-          return cache.add(pathname);
-        }
-      }));
+      let cache = await caches.open(this.#cacheName);
+      await Promise.all(
+        (
+          await this.#idb.get(
+            "routes",
+            { storage: "cache" }
+          )
+        ).map(
+          (route: CacheRoute) => cache.add(route.key)
+        )
+      );
+      this.warn("Caching files not implemented yet!");
       this.log("Dateien erfolgreich in den Cache geladen");
       this.dispatchEvent(new ServerEvent("afterupdate", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
       await Promise.all(promises);
-      return "Update erfolgreich abgeschlossen!";
+      return true;
     } catch (e) {
       this.error(e.message, e.stack);
-      return "Update fehlgeschlagen!";
+      return false;
     }
   }
-  async activate() {
+  async activate(): Promise<void> {
     // console.log("server called 'activate'", { server, routes: this.#routes });
     let promises: PromiseLike<void>[] = [];
     this.dispatchEvent(new ServerEvent("beforeactivate", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
     await Promise.all(promises);
     promises.splice(0, promises.length);
-    let response = await (await caches.open(this.MPC_CACHE_NAME)).match(Server.APP_SCOPE + "/serviceworker.js");
-    this.#VERSION = response ? date("Y.md.Hi", response.headers.get("Date")) : "ServiceWorker is broken.";
+    let response = await (await caches.open(this.#cacheName)).match(this.#scope + "/serviceworker.js");
+    this.#version = response ? date("Y.md.Hi", response.headers.get("Date")) : "ServiceWorker is broken.";
     await this.ready;
     this.dispatchEvent(new ServerEvent("activate", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
     await Promise.all(promises);
     promises.splice(0, promises.length);
     await clients.claim();
-    this.log("Serviceworker erfolgreich aktiviert (Version: " + this.#VERSION + ")");
+    this.log("Serviceworker erfolgreich aktiviert (Version: " + this.#version + ")");
     this.dispatchEvent(new ServerEvent("afteractivate", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
     await Promise.all(promises);
+  }
+  async start() {
+    // console.log("server called 'start'", { server, routes: this.#routes });
+    let promises: PromiseLike<void>[] = [];
+    this.dispatchEvent(new ServerEvent("start", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
+    await Promise.all(promises);
+    this.#start.resolve(null);
   }
   async fetch(input: RequestInfo, init?: RequestInit): Promise<Response> {
     // console.log("server called 'fetch'", { server, routes: this.#routes, arguments });
@@ -250,72 +254,101 @@ class Server extends EventTarget {
       return response;
     }
     try {
-      if (!this.getSetting("offline-mode")) {
-        if (request.url == this.API_URL) {
-          response = await globalThis.fetch(request);
-          this.dispatchEvent(new ServerEvent("afterfetch", { cancelable: false, group: "fetch", data: { url: typeof input == "string" ? input : input.url, request, response, respondWith(r) { respondWithResponse = r; } } }));
-          respondWithResponse && (response = (await respondWithResponse).clone());
-          return response;
-        }
+      let routes = await this.#idb.get("routes", async route => (
+        (
+          route.type == "string" && (
+            (route.ignoreCase && route.string.toLowerCase() == request.url.replace(/^([^\?\#]*)[\?\#].*$/, "$1").toLowerCase()) ||
+            (!route.ignoreCase && route.string == request.url.replace(/^([^\?\#]*)[\?\#].*$/, "$1"))
+          )
+        ) || (
+          route.type == "regexp" && route.regexp.test(request.url.replace(/^([^\?\#]*)[\?\#].*$/, "$1"))
+        )
+      ));
 
-        await this.ping();
-      }
-      let route = this.#routes.get(request.url.replace(/^([^\?\#]*)[\?\#].*$/, "$1"));
-      if (typeof route == "string") {
-        let cache = await caches.open(this.MPC_CACHE_NAME);
-        response = await cache.match(request.url.replace(/^([^\?\#]*)[\?\#].*$/, "$1"));
-        if (!response) {
-          console.error(request);
-          throw "File not cached: " + request.url;
-        }
-      } else if (typeof route == "object") {
-        if (typeof route.response == "function") {
-          let scope = await new Scope<any>(request, route).ready;
-          let rtn = await route.response.call(scope, scope);
-          response = (typeof rtn == "object" && rtn instanceof Response) ? rtn : new Response(rtn, {
-            headers: scope.headers,
-            status: scope.status,
-            statusText: scope.statusText
-          });
-        } else {
-          let rtn = await route.response;
-          response = (typeof rtn == "object" && rtn instanceof Response) ? rtn : new Response(rtn);
-        }
-      } else {
+      if (routes.length < 0) {
         throw "File not cached: " + request.url;
       }
-    } catch (error) {
-      if (error && error.message) {
-        this.error(error.message, error.stack);
-      } else {
-        this.error(error);
+
+      response = null;
+      let index = routes.length;
+      let hasError = false;
+      while (
+        response === null &&
+        index >= 0
+      ) {
+        index--;
+        let route = routes[index];
+        if (route.storage == "cache") {
+          response = await (await caches.open(this.#cacheName)).match(route.key);
+          if (!response) {
+            this.error(`File not cached: '${request.url}'`, `Redirected to cache: '${route.key}'.`);
+            hasError = true;
+            response = null;
+          }
+        } else if (route.storage == "static") {
+          let assets = await this.#idb.get("assets", { id: route.key });
+          if (assets.length > 0) {
+            response = new Response(assets[0].blob);
+          } else {
+            this.error(`File not stored: '${request.url}'`, `Redirected to indexedDB: '${route.key}'.`);
+            hasError = true;
+          }
+        } else if (route.storage == "dynamic") {
+          await this.#loadScript(route.script).catch((e: Error) => {
+            this.error(e.message, e.stack);
+            hasError = true;
+          });
+          if (this.#responseFunctions.has(route.function)) {
+            try {
+              response = await this.#responseFunctions.get(route.function)(request, route.arguments);
+            } catch (error) {
+              this.error(error);
+              hasError = true;
+              response = null;
+            };
+          } else {
+            this.error(`Failed to execute response function for '${request.url}'`, `Redirected to function '${route.function}' in script '${route.script}'.`);
+            hasError = true;
+          }
+        } else {
+          this.error(`Unknown storage type: '${(<Route>route).storage}'`);
+          hasError = true;
+        }
       }
-      response = new Response(await this.generate_error(new Scope<any>(request, {
-        response: "Error 500: Internal ServiceWorker Error"
-      }), {
-        message: typeof error == "string" ? error : error.message,
-        stack: typeof error == "string" ? null : error.stack,
-        code: 500
-      }), {
+      if (response) {
+        if (hasError) {
+          let route = routes[index];
+          if (route.storage == "dynamic") {
+            this.log(`File served with function`, `Redirected to function '${route.function}' in script '${route.script}'.`);
+          } else {
+            this.log(`File served as ${route.storage}`, `Redirected to ${route.storage == "cache" ? "cache" : "indexedDB"}: '${route.key}'.`);
+          }
+        }
+      } else {
+        if (hasError) {
+          response = await this.errorResponse("See log for more info", {
+            status: 500,
+            statusText: "Internal ServiceWorker Error"
+          });
+        } else {
+          response = await this.errorResponse("See log for more info", {
+            status: 404,
+            statusText: "File not found."
+          });
+        }
+      }
+    } catch (error) {
+      this.error(error);
+      response = await this.errorResponse(error, {
         status: 500,
         statusText: "Internal ServiceWorker Error",
-        headers: {
-          "Content-Type": "text/plain; charset=utf-8"
-        }
       });
     }
     this.dispatchEvent(new ServerEvent("afterfetch", { cancelable: false, group: "fetch", data: { url: typeof input == "string" ? input : input.url, request, response, respondWith(r) { respondWithResponse = r; } } }));
     respondWithResponse && (response = (await respondWithResponse).clone());
     return response;
   }
-  async start() {
-    // console.log("server called 'start'", { server, routes: this.#routes });
-    let promises: PromiseLike<void>[] = [];
-    this.dispatchEvent(new ServerEvent("start", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
-    await Promise.all(promises);
-    this.#start.resolve(null);
-  }
-  async message<K extends keyof ServerMessageMap>(message: ServerMessage<K>, source: Client | ServiceWorker | MessagePort) {
+  async message<K extends keyof ServerMessageMap>(message: ServerMessage<K>, source: Client | ServiceWorker | MessagePort | null) {
     this.dispatchEvent(new ServerEvent("beforemessage", { cancelable: false, group: "message", data: message }));
     this.dispatchEvent(new ServerEvent("message", { cancelable: false, group: "message", data: message }));
     switch (message.type) {
@@ -332,456 +365,459 @@ class Server extends EventTarget {
     }
     this.dispatchEvent(new ServerEvent("aftermessage", { cancelable: false, group: "message", data: message }));
   }
-  setSetting<K extends keyof ServerSettingsMap>(property: K, value: ServerSettingsMap[K]): boolean {
-    this.#settings.set(property, value);
-    this.#idb.put("settings", { key: property, value: value });
-    return true;
-  }
-  hasSetting<K extends keyof ServerSettingsMap>(property: K): boolean {
-    return this.#settings.has(property);
-  }
-  getSetting<K extends keyof ServerSettingsMap>(property: K): ServerSettingsMap[K] {
-    if (this.#settings.has(property)) {
-      return <ServerSettingsMap[K]>this.#settings.get(property);
-    }
-    return null;
-  }
-  async ping() {
-    if (!this.#pinging) {
-      this.#pinging = true;
-      let promises: PromiseLike<void>[] = [];
-      this.dispatchEvent(new ServerEvent("beforeping", { cancelable: false, group: "ping", data: { await(promise) { promises.push(promise); } } }));
-      await Promise.all(promises);
-      this.#connected = await this.is_connected();
-      let was_ping = false;
-      if (this.#connected && this.is_logged_in()) {
-        was_ping = true;
-        let promises: PromiseLike<void>[] = [];
-        this.dispatchEvent(new ServerEvent("ping", { cancelable: false, group: "ping", data: { await(promise) { promises.push(promise); } } }));
-        await Promise.all(promises);
-      }
-      this.#pinging = false;
-      if (was_ping) {
-        let promises: PromiseLike<void>[] = [];
-        this.dispatchEvent(new ServerEvent("afterping", { cancelable: false, group: "ping", data: { await(promise) { promises.push(promise); } } }));
-        await Promise.all(promises);
-      }
-    }
-  }
-  async apiFetch<F extends keyof APIFunctions>(func: F, args: APIFunctions[F]["args"] = []): Promise<APIFunctions[F]["return"]> {
-    if (this.network_online == false || this.getSetting("offline-mode")) {
-      throw new Error("Offline");
-    }
-    let headers = {
-      method: "post",
-      headers: {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-      },
-      body: JSON.stringify({
-        version: this.API_VERSION,
-        id: this.getSetting("id"),
-        token: this.getSetting("access-token"),
-        function: func,
-        arguments: args
-      })
-    };
-    let json = await (await fetch(this.API_URL, headers)).json();
 
-    if (json.version != this.API_VERSION) {
-      throw new Error("Invalid API Version. Please update!");
-    }
-    if (json.function != func) {
-      throw new Error("Invalid response function");
-    }
-    if ("error" in json) {
-      throw new Error(json.error);
-    }
-    return json.return;
+  #settings: Map<keyof ServerSettingsMap, ServerSettingsMap[keyof ServerSettingsMap]> = new Map();
+  #settingsListenerMap: Map<keyof ServerSettingsMap, (old_value: ServerSettingsMap[keyof ServerSettingsMap], new_value: ServerSettingsMap[keyof ServerSettingsMap]) => void | PromiseLike<void>> = new Map();
+  getSetting<Key extends keyof ServerSettingsMap>(key: Key): ServerSettingsMap[Key] {
+    return <ServerSettingsMap[Key]>this.#settings.get(key);
   }
-  async awaitEventListener<T extends Event>(target: EventTarget, resolve_type: string, reject_type: string = "error"): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      function resolveCallback(event: T) {
-        resolve(event);
-        target.removeEventListener(resolve_type, resolveCallback);
-        target.removeEventListener(reject_type, rejectCallback);
-      }
-      function rejectCallback(event: T) {
-        reject(event);
-        target.removeEventListener(resolve_type, resolveCallback);
-        target.removeEventListener(reject_type, rejectCallback);
-      }
-      target.addEventListener(resolve_type, resolveCallback);
-      target.addEventListener(reject_type, rejectCallback);
+  async setSetting<Key extends keyof ServerSettingsMap>(key: Key, value: ServerSettingsMap[Key]): Promise<void> {
+    let old_value = this.#settings.get(key);
+    this.#settings.set(key, value);
+    if (this.#settingsListenerMap.has(key)) {
+      await this.#settingsListenerMap.get(key)(old_value, value);
+    }
+    await this.#idb.put("settings", { key, value });
+  }
+  async #log(type: string, message: IndexedDBSupportedDataTypes, stack: IndexedDBSupportedDataTypes): Promise<void> {
+    await this.#idb.put("log", {
+      timestamp: Date.now(),
+      type,
+      message,
+      stack
     });
   }
-  async is_connected(): Promise<boolean> {
-    try {
-      let value = await this.apiFetch("is_connected");
-      if (value === false && this.is_logged_in()) {
-        this.error("Der Server hat die Authentifizierung abgelehnt");
-      }
-      return true;
-    } catch (e) {
-      return false;
-    }
+  async log(message: IndexedDBSupportedDataTypes, stack: IndexedDBSupportedDataTypes = null): Promise<void> {
+    console.log(message, stack);
+    await this.#log("log", message, stack);
   }
-  async generate_error(scope: Scope<any>, options: { message: string; stack?: string; code?: number; }): Promise<string> {
-    if (typeof options.code != "number") {
-      options.code = 500;
+  async warn(message: IndexedDBSupportedDataTypes, stack: IndexedDBSupportedDataTypes = null): Promise<void> {
+    console.warn(message, stack);
+    await this.#log("warn", message, stack);
+  }
+  async error(message: IndexedDBSupportedDataTypes, stack: IndexedDBSupportedDataTypes = null): Promise<void> {
+    console.error(message, stack);
+    await this.#log("error", message, stack);
+  }
+  async clearLog(): Promise<void> {
+    await this.#idb.delete("log");
+    this.#log("clear", "Das Protokoll wurde erfolgreich gelöscht", null);
+    console.clear();
+  }
+  async getLog(types: {
+    log?: boolean;
+    warn?: boolean;
+    error?: boolean;
+  } = {
+      log: true,
+      warn: true,
+      error: true
+    }): Promise<{
+      type: string;
+      message: IndexedDBSupportedDataTypes;
+      stack: IndexedDBSupportedDataTypes;
+      timestamp: number;
+    }[]> {
+    if (types.log && types.warn && types.error) {
+      return this.#idb.get("log");
+    } else {
+      let type_array = [];
+      types.log && type_array.push("log");
+      types.warn && type_array.push("warn");
+      types.error && type_array.push("error");
+      return this.#idb.get("log", {
+        type: new RegExp("^(" + type_array.join("|") + ")$")
+      });
     }
-    scope.status = options.code;
-    return scope.build(options, `Error ${options.code}: ${options.message}\n${options.stack}`);
   }
 
-  is_logged_in() {
-    return !!(
-      this.getSetting("id") &&
-      this.getSetting("access-token")
+  #responseFunctions: Map<string, (request: Request, args: IndexedDBSupportedDataTypes) => Response | Promise<Response>> = new Map();
+  registerResponseFunction<args extends IndexedDBSupportedDataTypes>(id: string, responseFunction: (request: Request, args: args) => Response | Promise<Response>): void {
+    this.#responseFunctions.set(id, responseFunction);
+  }
+  async errorResponse(error: any, responseInit: ResponseInit = {
+    headers: {
+      "Content-Type": "text/plain"
+    },
+    status: 500,
+    statusText: "Internal Server Error"
+  }): Promise<Response> {
+    return new Response(error, responseInit);
+  }
+  async registerRoute(route: Route): Promise<void> {
+    await this.#idb.add("routes", route);
+  }
+  async registerAsset(id: string, blob: Blob): Promise<void> {
+    await this.#idb.put("assets", { id, blob });
+  }
+  async registerRedirection(routeSelector: RouteSelector, destination: string) {
+    await this.#idb.add(
+      "routes",
+      Object.assign(
+        <DynamicRoute>{
+          priority: 0,
+          script: null,
+          function: "redirect",
+          arguments: [destination]
+        },
+        routeSelector
+      )
     );
   }
 
-  registerRoute<F extends string>(pathname: string, route: Route<F> | "cache") {
-    if (typeof route == "object") {
-      if (route.files) {
-        Object.keys(route.files).forEach(key => {
-          this.registerRoute(route.files[key], "cache");
-        });
-      }
-      if (route.icon) {
-        Server.ICON_SIZES.forEach(size => {
-          let [width, height] = size.split("x");
-          Server.ICON_PURPOSES.forEach(purpose => {
-            server.registerRoute(route.icon.replace("${p}", purpose).replace("${w}", width).replace("${h}", height), "cache");
-          });
-        });
-      }
-    }
-    if (!this.#routes.has(pathname)) {
-      this.#routes.set(pathname, route);
-    } else if (route != "cache" && this.#routes.get(pathname) != "cache") {
-      this.#routes.set(pathname, route);
-    }
+  #ononline: (this: this, ev: ServerEventMap["online"]) => any = null;
+  get ononline() {
+    return this.#ononline;
   }
-  iterateRoutes(callback: <F extends string>(route: Route<F> | "cache", pathname: string) => void) {
-    this.#routes.forEach(callback);
-  }
-
-  createRedirection(url: string): Response {
-    return new Response(url, {
-      status: 302,
-      statusText: "Found",
-      headers: {
-        Location: url
-      }
-    });
-  }
-
-  #staticEvents: Map<keyof ServerEventMap, (this: Server, ev: ServerEventMap[keyof ServerEventMap]) => any> = new Map();
-  get onbeforeinstall() {
-    return this.#staticEvents.get("beforeinstall") || null;
-  }
-  set onbeforeinstall(value: (this: Server, ev: ServerEventMap["beforeinstall"]) => any) {
-    if (this.#staticEvents.has("beforeinstall")) {
-      this.removeEventListener("beforeinstall", this.#staticEvents.get("beforeinstall"));
+  set ononline(value: (this: this, ev: ServerEventMap["online"]) => any) {
+    if (this.#ononline) {
+      this.removeEventListener("online", this.#ononline);
     }
     if (typeof value == "function") {
-      this.#staticEvents.set("beforeinstall", value);
+      this.#ononline = value;
+      this.addEventListener("online", value);
+    } else {
+      this.#ononline = null;
+    }
+  }
+  #onoffline: (this: this, ev: ServerEventMap["offline"]) => any = null;
+  get onoffline() {
+    return this.#onoffline;
+  }
+  set onoffline(value: (this: this, ev: ServerEventMap["offline"]) => any) {
+    if (this.#onoffline) {
+      this.removeEventListener("offline", this.#onoffline);
+    }
+    if (typeof value == "function") {
+      this.#onoffline = value;
+      this.addEventListener("offline", value);
+    } else {
+      this.#onoffline = null;
+    }
+  }
+  #onconnected: (this: this, ev: ServerEventMap["connected"]) => any = null;
+  get onconnected() {
+    return this.#onconnected;
+  }
+  set onconnected(value: (this: this, ev: ServerEventMap["connected"]) => any) {
+    if (this.#onconnected) {
+      this.removeEventListener("connected", this.#onconnected);
+    }
+    if (typeof value == "function") {
+      this.#onconnected = value;
+      this.addEventListener("connected", value);
+    } else {
+      this.#onconnected = null;
+    }
+  }
+  #ondisconnected: (this: this, ev: ServerEventMap["disconnected"]) => any = null;
+  get ondisconnected() {
+    return this.#ondisconnected;
+  }
+  set ondisconnected(value: (this: this, ev: ServerEventMap["disconnected"]) => any) {
+    if (this.#ondisconnected) {
+      this.removeEventListener("disconnected", this.#ondisconnected);
+    }
+    if (typeof value == "function") {
+      this.#ondisconnected = value;
+      this.addEventListener("disconnected", value);
+    } else {
+      this.#ondisconnected = null;
+    }
+  }
+
+  #onbeforeinstall: (this: this, ev: ServerEventMap["beforeinstall"]) => any = null;
+  get onbeforeinstall() {
+    return this.#onbeforeinstall;
+  }
+  set onbeforeinstall(value: (this: this, ev: ServerEventMap["beforeinstall"]) => any) {
+    if (this.#onbeforeinstall) {
+      this.removeEventListener("beforeinstall", this.#onbeforeinstall);
+    }
+    if (typeof value == "function") {
+      this.#onbeforeinstall = value;
       this.addEventListener("beforeinstall", value);
     } else {
-      this.#staticEvents.delete("beforeinstall");
+      this.#onbeforeinstall = null;
     }
   }
+  #oninstall: (this: this, ev: ServerEventMap["install"]) => any = null;
   get oninstall() {
-    return this.#staticEvents.get("install") || null;
+    return this.#oninstall;
   }
-  set oninstall(value: (this: Server, ev: ServerEventMap["install"]) => any) {
-    if (this.#staticEvents.has("install")) {
-      this.removeEventListener("install", this.#staticEvents.get("install"));
+  set oninstall(value: (this: this, ev: ServerEventMap["install"]) => any) {
+    if (this.#oninstall) {
+      this.removeEventListener("install", this.#oninstall);
     }
     if (typeof value == "function") {
-      this.#staticEvents.set("install", value);
+      this.#oninstall = value;
       this.addEventListener("install", value);
     } else {
-      this.#staticEvents.delete("install");
+      this.#oninstall = null;
     }
   }
+  #onafterinstall: (this: this, ev: ServerEventMap["afterinstall"]) => any = null;
   get onafterinstall() {
-    return this.#staticEvents.get("afterinstall") || null;
+    return this.#onafterinstall;
   }
-  set onafterinstall(value: (this: Server, ev: ServerEventMap["afterinstall"]) => any) {
-    if (this.#staticEvents.has("afterinstall")) {
-      this.removeEventListener("afterinstall", this.#staticEvents.get("afterinstall"));
+  set onafterinstall(value: (this: this, ev: ServerEventMap["afterinstall"]) => any) {
+    if (this.#onafterinstall) {
+      this.removeEventListener("afterinstall", this.#onafterinstall);
     }
     if (typeof value == "function") {
-      this.#staticEvents.set("afterinstall", value);
+      this.#onafterinstall = value;
       this.addEventListener("afterinstall", value);
     } else {
-      this.#staticEvents.delete("afterinstall");
+      this.#onafterinstall = null;
     }
   }
 
+  #onbeforeupdate: (this: this, ev: ServerEventMap["beforeupdate"]) => any = null;
   get onbeforeupdate() {
-    return this.#staticEvents.get("beforeupdate") || null;
+    return this.#onbeforeupdate;
   }
-  set onbeforeupdate(value: (this: Server, ev: ServerEventMap["beforeupdate"]) => any) {
-    if (this.#staticEvents.has("beforeupdate")) {
-      this.removeEventListener("beforeupdate", this.#staticEvents.get("beforeupdate"));
+  set onbeforeupdate(value: (this: this, ev: ServerEventMap["beforeupdate"]) => any) {
+    if (this.#onbeforeupdate) {
+      this.removeEventListener("beforeupdate", this.#onbeforeupdate);
     }
     if (typeof value == "function") {
-      this.#staticEvents.set("beforeupdate", value);
+      this.#onbeforeupdate = value;
       this.addEventListener("beforeupdate", value);
     } else {
-      this.#staticEvents.delete("beforeupdate");
+      this.#onbeforeupdate = null;
     }
   }
+  #onupdate: (this: this, ev: ServerEventMap["update"]) => any = null;
   get onupdate() {
-    return this.#staticEvents.get("update") || null;
+    return this.#onupdate;
   }
-  set onupdate(value: (this: Server, ev: ServerEventMap["update"]) => any) {
-    if (this.#staticEvents.has("update")) {
-      this.removeEventListener("update", this.#staticEvents.get("update"));
+  set onupdate(value: (this: this, ev: ServerEventMap["update"]) => any) {
+    if (this.#onupdate) {
+      this.removeEventListener("update", this.#onupdate);
     }
     if (typeof value == "function") {
-      this.#staticEvents.set("update", value);
+      this.#onupdate = value;
       this.addEventListener("update", value);
     } else {
-      this.#staticEvents.delete("update");
+      this.#onupdate = null;
     }
   }
+  #onafterupdate: (this: this, ev: ServerEventMap["afterupdate"]) => any = null;
   get onafterupdate() {
-    return this.#staticEvents.get("afterupdate") || null;
+    return this.#onafterupdate;
   }
-  set onafterupdate(value: (this: Server, ev: ServerEventMap["afterupdate"]) => any) {
-    if (this.#staticEvents.has("afterupdate")) {
-      this.removeEventListener("afterupdate", this.#staticEvents.get("afterupdate"));
+  set onafterupdate(value: (this: this, ev: ServerEventMap["afterupdate"]) => any) {
+    if (this.#onafterupdate) {
+      this.removeEventListener("afterupdate", this.#onafterupdate);
     }
     if (typeof value == "function") {
-      this.#staticEvents.set("afterupdate", value);
+      this.#onafterupdate = value;
       this.addEventListener("afterupdate", value);
     } else {
-      this.#staticEvents.delete("afterupdate");
+      this.#onafterupdate = null;
     }
   }
 
+  #onbeforeactivate: (this: this, ev: ServerEventMap["beforeactivate"]) => any = null;
   get onbeforeactivate() {
-    return this.#staticEvents.get("beforeactivate") || null;
+    return this.#onbeforeactivate;
   }
-  set onbeforeactivate(value: (this: Server, ev: ServerEventMap["beforeactivate"]) => any) {
-    if (this.#staticEvents.has("beforeactivate")) {
-      this.removeEventListener("beforeactivate", this.#staticEvents.get("beforeactivate"));
+  set onbeforeactivate(value: (this: this, ev: ServerEventMap["beforeactivate"]) => any) {
+    if (this.#onbeforeactivate) {
+      this.removeEventListener("beforeactivate", this.#onbeforeactivate);
     }
     if (typeof value == "function") {
-      this.#staticEvents.set("beforeactivate", value);
+      this.#onbeforeactivate = value;
       this.addEventListener("beforeactivate", value);
     } else {
-      this.#staticEvents.delete("beforeactivate");
+      this.#onbeforeactivate = null;
     }
   }
+  #onactivate: (this: this, ev: ServerEventMap["activate"]) => any = null;
   get onactivate() {
-    return this.#staticEvents.get("activate") || null;
+    return this.#onactivate;
   }
-  set onactivate(value: (this: Server, ev: ServerEventMap["activate"]) => any) {
-    if (this.#staticEvents.has("activate")) {
-      this.removeEventListener("activate", this.#staticEvents.get("activate"));
+  set onactivate(value: (this: this, ev: ServerEventMap["activate"]) => any) {
+    if (this.#onactivate) {
+      this.removeEventListener("activate", this.#onactivate);
     }
     if (typeof value == "function") {
-      this.#staticEvents.set("activate", value);
+      this.#onactivate = value;
       this.addEventListener("activate", value);
     } else {
-      this.#staticEvents.delete("activate");
+      this.#onactivate = null;
     }
   }
+  #onafteractivate: (this: this, ev: ServerEventMap["afteractivate"]) => any = null;
   get onafteractivate() {
-    return this.#staticEvents.get("afteractivate") || null;
+    return this.#onafteractivate;
   }
-  set onafteractivate(value: (this: Server, ev: ServerEventMap["afteractivate"]) => any) {
-    if (this.#staticEvents.has("afteractivate")) {
-      this.removeEventListener("afteractivate", this.#staticEvents.get("afteractivate"));
+  set onafteractivate(value: (this: this, ev: ServerEventMap["afteractivate"]) => any) {
+    if (this.#onafteractivate) {
+      this.removeEventListener("afteractivate", this.#onafteractivate);
     }
     if (typeof value == "function") {
-      this.#staticEvents.set("afteractivate", value);
+      this.#onafteractivate = value;
       this.addEventListener("afteractivate", value);
     } else {
-      this.#staticEvents.delete("afteractivate");
+      this.#onafteractivate = null;
     }
   }
 
+  #onbeforefetch: (this: this, ev: ServerEventMap["beforefetch"]) => any = null;
   get onbeforefetch() {
-    return this.#staticEvents.get("beforefetch") || null;
+    return this.#onbeforefetch;
   }
-  set onbeforefetch(value: (this: Server, ev: ServerEventMap["beforefetch"]) => any) {
-    if (this.#staticEvents.has("beforefetch")) {
-      this.removeEventListener("beforefetch", this.#staticEvents.get("beforefetch"));
+  set onbeforefetch(value: (this: this, ev: ServerEventMap["beforefetch"]) => any) {
+    if (this.#onbeforefetch) {
+      this.removeEventListener("beforefetch", this.#onbeforefetch);
     }
     if (typeof value == "function") {
-      this.#staticEvents.set("beforefetch", value);
+      this.#onbeforefetch = value;
       this.addEventListener("beforefetch", value);
     } else {
-      this.#staticEvents.delete("beforefetch");
+      this.#onbeforefetch = null;
     }
   }
+  #onfetch: (this: this, ev: ServerEventMap["fetch"]) => any = null;
   get onfetch() {
-    return this.#staticEvents.get("fetch") || null;
+    return this.#onfetch;
   }
-  set onfetch(value: (this: Server, ev: ServerEventMap["fetch"]) => any) {
-    if (this.#staticEvents.has("fetch")) {
-      this.removeEventListener("fetch", this.#staticEvents.get("fetch"));
+  set onfetch(value: (this: this, ev: ServerEventMap["fetch"]) => any) {
+    if (this.#onfetch) {
+      this.removeEventListener("fetch", this.#onfetch);
     }
     if (typeof value == "function") {
-      this.#staticEvents.set("fetch", value);
+      this.#onfetch = value;
       this.addEventListener("fetch", value);
     } else {
-      this.#staticEvents.delete("fetch");
+      this.#onfetch = null;
     }
   }
+  #onafterfetch: (this: this, ev: ServerEventMap["afterfetch"]) => any = null;
   get onafterfetch() {
-    return this.#staticEvents.get("afterfetch") || null;
+    return this.#onafterfetch;
   }
-  set onafterfetch(value: (this: Server, ev: ServerEventMap["afterfetch"]) => any) {
-    if (this.#staticEvents.has("afterfetch")) {
-      this.removeEventListener("afterfetch", this.#staticEvents.get("afterfetch"));
+  set onafterfetch(value: (this: this, ev: ServerEventMap["afterfetch"]) => any) {
+    if (this.#onafterfetch) {
+      this.removeEventListener("afterfetch", this.#onafterfetch);
     }
     if (typeof value == "function") {
-      this.#staticEvents.set("afterfetch", value);
+      this.#onafterfetch = value;
       this.addEventListener("afterfetch", value);
     } else {
-      this.#staticEvents.delete("afterfetch");
+      this.#onafterfetch = null;
     }
   }
 
+  #onbeforestart: (this: this, ev: ServerEventMap["beforestart"]) => any = null;
   get onbeforestart() {
-    return this.#staticEvents.get("beforestart") || null;
+    return this.#onbeforestart;
   }
-  set onbeforestart(value: (this: Server, ev: ServerEventMap["beforestart"]) => any) {
-    if (this.#staticEvents.has("beforestart")) {
-      this.removeEventListener("beforestart", this.#staticEvents.get("beforestart"));
+  set onbeforestart(value: (this: this, ev: ServerEventMap["beforestart"]) => any) {
+    if (this.#onbeforestart) {
+      this.removeEventListener("beforestart", this.#onbeforestart);
     }
     if (typeof value == "function") {
-      this.#staticEvents.set("beforestart", value);
+      this.#onbeforestart = value;
       this.addEventListener("beforestart", value);
     } else {
-      this.#staticEvents.delete("beforestart");
+      this.#onbeforestart = null;
     }
   }
+  #onstart: (this: this, ev: ServerEventMap["start"]) => any = null;
   get onstart() {
-    return this.#staticEvents.get("start") || null;
+    return this.#onstart;
   }
-  set onstart(value: (this: Server, ev: ServerEventMap["start"]) => any) {
-    if (this.#staticEvents.has("start")) {
-      this.removeEventListener("start", this.#staticEvents.get("start"));
+  set onstart(value: (this: this, ev: ServerEventMap["start"]) => any) {
+    if (this.#onstart) {
+      this.removeEventListener("start", this.#onstart);
     }
     if (typeof value == "function") {
-      this.#staticEvents.set("start", value);
+      this.#onstart = value;
       this.addEventListener("start", value);
     } else {
-      this.#staticEvents.delete("start");
+      this.#onstart = null;
     }
   }
+  #onafterstart: (this: this, ev: ServerEventMap["afterstart"]) => any = null;
   get onafterstart() {
-    return this.#staticEvents.get("afterstart") || null;
+    return this.#onafterstart;
   }
-  set onafterstart(value: (this: Server, ev: ServerEventMap["afterstart"]) => any) {
-    if (this.#staticEvents.has("afterstart")) {
-      this.removeEventListener("afterstart", this.#staticEvents.get("afterstart"));
+  set onafterstart(value: (this: this, ev: ServerEventMap["afterstart"]) => any) {
+    if (this.#onafterstart) {
+      this.removeEventListener("afterstart", this.#onafterstart);
     }
     if (typeof value == "function") {
-      this.#staticEvents.set("afterstart", value);
+      this.#onafterstart = value;
       this.addEventListener("afterstart", value);
     } else {
-      this.#staticEvents.delete("afterstart");
+      this.#onafterstart = null;
     }
   }
 
+  #onbeforemessage: (this: this, ev: ServerEventMap["beforemessage"]) => any = null;
   get onbeforemessage() {
-    return this.#staticEvents.get("beforemessage") || null;
+    return this.#onbeforemessage;
   }
-  set onbeforemessage(value: (this: Server, ev: ServerEventMap["beforemessage"]) => any) {
-    if (this.#staticEvents.has("beforemessage")) {
-      this.removeEventListener("beforemessage", this.#staticEvents.get("beforemessage"));
+  set onbeforemessage(value: (this: this, ev: ServerEventMap["beforemessage"]) => any) {
+    if (this.#onbeforemessage) {
+      this.removeEventListener("beforemessage", this.#onbeforemessage);
     }
     if (typeof value == "function") {
-      this.#staticEvents.set("beforemessage", value);
+      this.#onbeforemessage = value;
       this.addEventListener("beforemessage", value);
     } else {
-      this.#staticEvents.delete("beforemessage");
+      this.#onbeforemessage = null;
     }
   }
+  #onmessage: (this: this, ev: ServerEventMap["message"]) => any = null;
   get onmessage() {
-    return this.#staticEvents.get("message") || null;
+    return this.#onmessage;
   }
-  set onmessage(value: (this: Server, ev: ServerEventMap["message"]) => any) {
-    if (this.#staticEvents.has("message")) {
-      this.removeEventListener("message", this.#staticEvents.get("message"));
+  set onmessage(value: (this: this, ev: ServerEventMap["message"]) => any) {
+    if (this.#onmessage) {
+      this.removeEventListener("message", this.#onmessage);
     }
     if (typeof value == "function") {
-      this.#staticEvents.set("message", value);
+      this.#onmessage = value;
       this.addEventListener("message", value);
     } else {
-      this.#staticEvents.delete("message");
+      this.#onmessage = null;
     }
   }
+  #onaftermessage: (this: this, ev: ServerEventMap["aftermessage"]) => any = null;
   get onaftermessage() {
-    return this.#staticEvents.get("aftermessage") || null;
+    return this.#onaftermessage;
   }
-  set onaftermessage(value: (this: Server, ev: ServerEventMap["aftermessage"]) => any) {
-    if (this.#staticEvents.has("aftermessage")) {
-      this.removeEventListener("aftermessage", this.#staticEvents.get("aftermessage"));
+  set onaftermessage(value: (this: this, ev: ServerEventMap["aftermessage"]) => any) {
+    if (this.#onaftermessage) {
+      this.removeEventListener("aftermessage", this.#onaftermessage);
     }
     if (typeof value == "function") {
-      this.#staticEvents.set("aftermessage", value);
+      this.#onaftermessage = value;
       this.addEventListener("aftermessage", value);
     } else {
-      this.#staticEvents.delete("aftermessage");
-    }
-  }
-
-  get onbeforeping() {
-    return this.#staticEvents.get("beforeping") || null;
-  }
-  set onbeforeping(value: (this: Server, ev: ServerEventMap["beforeping"]) => any) {
-    if (this.#staticEvents.has("beforeping")) {
-      this.removeEventListener("beforeping", this.#staticEvents.get("beforeping"));
-    }
-    if (typeof value == "function") {
-      this.#staticEvents.set("beforeping", value);
-      this.addEventListener("beforeping", value);
-    } else {
-      this.#staticEvents.delete("beforeping");
-    }
-  }
-  get onping() {
-    return this.#staticEvents.get("ping") || null;
-  }
-  set onping(value: (this: Server, ev: ServerEventMap["ping"]) => any) {
-    if (this.#staticEvents.has("ping")) {
-      this.removeEventListener("ping", this.#staticEvents.get("ping"));
-    }
-    if (typeof value == "function") {
-      this.#staticEvents.set("ping", value);
-      this.addEventListener("ping", value);
-    } else {
-      this.#staticEvents.delete("ping");
-    }
-  }
-  get onafterping() {
-    return this.#staticEvents.get("afterping") || null;
-  }
-  set onafterping(value: (this: Server, ev: ServerEventMap["afterping"]) => any) {
-    if (this.#staticEvents.has("afterping")) {
-      this.removeEventListener("afterping", this.#staticEvents.get("afterping"));
-    }
-    if (typeof value == "function") {
-      this.#staticEvents.set("afterping", value);
-      this.addEventListener("afterping", value);
-    } else {
-      this.#staticEvents.delete("afterping");
+      this.#onaftermessage = null;
     }
   }
 }
 
 interface Server {
-  addEventListener<K extends keyof ServerEventMap>(type: K, listener: (this: Server, ev: ServerEventMap[K]) => any, options?: boolean | AddEventListenerOptions): void;
+  addEventListener<K extends keyof ServerEventMap>(type: K, listener: (this: this, ev: ServerEventMap[K]) => any, options?: boolean | AddEventListenerOptions): void;
+  addEventListener(type: string, listener: (this: this, ev: Event) => any, options?: boolean | AddEventListenerOptions): void;
+  removeEventListener<K extends keyof ServerEventMap>(type: K, listener: (this: this, ev: ServerEventMap[K]) => any, options?: boolean | AddEventListenerOptions): void;
+  removeEventListener(type: string, listener: (this: this, ev: Event) => any, options?: boolean | AddEventListenerOptions): void;
+  awaitEventListener<SK extends keyof ServerEventMap, EK extends keyof ServerEventMap>(resolve_type: SK, reject_type?: EK): Promise<ServerEventMap[SK]>;
+  awaitEventListener<EK extends keyof ServerEventMap>(resolve_type: string, reject_type?: EK): Promise<Event>;
+  awaitEventListener<SK extends keyof ServerEventMap>(resolve_type: SK, reject_type?: string): Promise<ServerEventMap[SK]>;
+  awaitEventListener(resolve_type: string, reject_type?: string): Promise<Event>;
+}
+
+interface ServerSettingsMap {
+  version: string;
+  copyright: string;
+  "offline-mode": boolean;
 }
 
 interface ServerEventMap {
@@ -813,10 +849,6 @@ interface ServerEventMap {
   beforemessage: ServerEvent<"message">;
   message: ServerEvent<"message">;
   aftermessage: ServerEvent<"message">;
-
-  beforeping: ServerEvent<"ping">;
-  ping: ServerEvent<"ping">;
-  afterping: ServerEvent<"ping">;
 }
 
 interface ServerEventGroupMap {
@@ -831,40 +863,7 @@ interface ServerEventGroupMap {
     respondWith(response: Response | PromiseLike<Response>): void;
   };
   message: ServerMessage<keyof ServerMessageMap>;
-  ping: {
-    await(promise: PromiseLike<any>): void;
-  };
 }
-
-interface ServerSettingsMap {
-  "offline-mode": boolean;
-  "access-token": string;
-  "id": string;
-  "site-title": string;
-  "theme-color": string;
-  copyright: string;
-  "server-icon": string;
-}
-
-interface APIFunctions {
-  is_connected: {
-    args: [];
-    return: boolean;
-  }
-}
-
-interface Route<F extends string> {
-  label?: string;
-  icon?: string;
-  is_shortcut?: boolean;
-  files?: {
-    [s in F]: string;
-  };
-  response: RouteResponseBody<F> | Response;
-}
-
-type RouteResponseBody<F extends string> = BodyInit | null | Promise<BodyInit | null> | RouteResponseBodyHandler<F>;
-type RouteResponseBodyHandler<F extends string> = (this: Scope<F>, scope: Scope<F>) => Response | BodyInit | null | Promise<Response | BodyInit | null>;
 
 type ServerMessage<K extends keyof ServerMessageMap> = { type: K } & ServerMessageMap[K];
 
@@ -874,3 +873,28 @@ interface ServerMessageMap {
     value: ServerSettingsMap[keyof ServerSettingsMap];
   };
 }
+
+type RouteSelector = {
+  priority: 0;
+  type: "string";
+  string: string;
+  ignoreCase: boolean;
+} | {
+  type: "regexp";
+  regexp: RegExp;
+};
+type CacheRoute = RouteSelector & {
+  storage: "cache";
+  key: string;
+};
+type StaticRoute = RouteSelector & {
+  storage: "static";
+  key: string;
+};
+type DynamicRoute = RouteSelector & {
+  storage: "dynamic";
+  script: string;
+  function: string;
+  arguments: IndexedDBSupportedDataTypes;
+}
+type Route = CacheRoute | StaticRoute | DynamicRoute;

@@ -19,7 +19,7 @@ class CacheResponse {
   }
   async #getResponse() {
     if (this.#response == null) {
-      this.#response = await caches.match(this.url) || new Response(null, {
+      this.#response = await server.fetch(this.url) || new Response(null, {
         status: 404,
         statusText: "File not cached: " + this.url
       });

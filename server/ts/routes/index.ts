@@ -1,33 +1,38 @@
 /// <reference no-default-lib="true" />
 /// <reference path="../config.ts" />
 
-server.registerRoute(Server.APP_SCOPE + "/index.html", {
-  response: server.createRedirection(Server.APP_SCOPE + "/")
+server.registerRoute({
+  type: "regexp",
+  regexp: new RegExp("^" + server.regex_safe_scope + "\\/(index(.[a-z0-9]+)?)?$", "g"),
+  storage: "dynamic",
+  script: null,
+  function: server.scope + "/index.html",
+  arguments: []
 });
-server.registerRoute(Server.APP_SCOPE, {
-  response: server.createRedirection(Server.APP_SCOPE + "/")
-});
-server.registerRoute(Server.APP_SCOPE + "/", {
-  files: {
-    "mpc.css": Server.APP_SCOPE + "/client/css/mpc.css",
-    "main.css": Server.APP_SCOPE + "/client/css/main.css",
-    "print.css": Server.APP_SCOPE + "/client/css/print.css",
-    "main.js": Server.APP_SCOPE + "/client/js/main.js",
-    "layout.html": Server.APP_SCOPE + "/client/html/layout.html"
-  },
-  async response() {
-    this.add_style("mpc-css", this.files["mpc.css"].url);
-    this.add_style("main-css", this.files["main.css"].url);
-    this.add_style("print-css", this.files["print.css"].url, "print");
-    this.add_script("main-js", this.files["main.js"].url);
 
-    return await this.build({
-      page_title: "Startseite",
-      main: `<ul>
-  <li><a href="/train">Trainieren</a></li>
-  <li><a href="/debug">Debug</a></li>
-  <li><a href="/list">Liste</a></li>
+server.registerResponseFunction(server.scope + "/index.html", async (request, args) => {
+  let files = {
+    "mpc.css": new CacheResponse(server.scope + "/client/css/mpc.css"),
+    "main.css": new CacheResponse(server.scope + "/client/css/main.css"),
+    "print.css": new CacheResponse(server.scope + "/client/css/print.css"),
+    "main.js": new CacheResponse(server.scope + "/client/js/main.js"),
+    "layout.html": new CacheResponse(server.scope + "/client/html/layout.html")
+  };
+  let scope = new Scope(request);
+
+  scope.add_style("mpc-css", this.files["mpc.css"]);
+  scope.add_style("main-css", this.files["main.css"]);
+  scope.add_style("print-css", this.files["print.css"], "print");
+  scope.add_script("main-js", this.files["main.js"]);
+
+  scope.page_title = "Startseite";
+  scope.data = {
+    main: `<ul>
+<li><a href="/train">Trainieren</a></li>
+<li><a href="/debug">Debug</a></li>
+<li><a href="/list">Liste</a></li>
 </ul>`,
-    }, await this.files["layout.html"].text());
-  }
+  };
+
+  return new Response(await this.build(files["layout.html"]), scope);
 });
