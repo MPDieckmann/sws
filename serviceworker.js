@@ -1,5 +1,469 @@
 /// <reference no-default-lib="true" />
 /// <reference path="index.ts" />
+Number.prototype.toFloatingString = function (decimals) {
+    let value = this.toString();
+    if (decimals > 0) {
+        let floatings = new Array(decimals).fill(0).join("");
+        if (value.indexOf(".") > -1) {
+            let split = value.split(".");
+            if (split[1].length >= floatings.length) {
+                return split[0] + "." + split[1].substr(0, floatings.length);
+            }
+            else {
+                return value + floatings.substr(split[1].length);
+            }
+        }
+        else {
+            return value + "." + floatings;
+        }
+    }
+    else {
+        return value.split(".")[0];
+    }
+};
+String.prototype.toRegExp = function (flags = "") {
+    return new RegExp(this.replace(/([\\\/\[\]\{\}\?\*\+\.\^\$\(\)\:\=\!\|\,])/g, "\\$1"), flags);
+};
+String.prototype.escape = function (escapable = "", escapeWith) {
+    return this.replace(new RegExp(escapable.replace(/([\\\/\[\]\{\}\?\*\+\.\^\$\(\)\:\=\!\|\,])/g, "\\$1"), "g"), escapeWith.replace(/([\\\/\[\]\{\}\?\*\+\.\^\$\(\)\:\=\!\|\,])/g, "\\$1") + "$1");
+};
+String.ESCAPE_REGEXP = "\\/[]{}?*+.^$():=!|,";
+EventTarget.prototype.awaitEventListener = function awaitEventListener(resolve_type, reject_type = "error") {
+    return new Promise((resolve, reject) => {
+        let resolveCallback = (event) => {
+            resolve(event);
+            this.removeEventListener(resolve_type, resolveCallback);
+            this.removeEventListener(reject_type, rejectCallback);
+        };
+        let rejectCallback = (event) => {
+            reject(event);
+            this.removeEventListener(resolve_type, resolveCallback);
+            this.removeEventListener(reject_type, rejectCallback);
+        };
+        this.addEventListener(resolve_type, resolveCallback, { once: true });
+        this.addEventListener(reject_type, rejectCallback, { once: true });
+    });
+};
+/**
+ * replace i18n, if it is not available
+ */
+// @ts-ignore
+let i18n = self.i18n || ((text) => text.toString());
+/**
+ * Formatiert ein(e) angegebene(s) Ortszeit/Datum gemäß PHP 7
+ * @param {string} string die Zeichenfolge, die umgewandelt wird
+ * @param {number | string | Date} timestamp der zu verwendende Zeitpunkt
+ * @return {string}
+ */
+function date(string, timestamp = new Date) {
+    var d = (timestamp instanceof Date) ? timestamp : new Date(timestamp);
+    var escaped = false;
+    return string.split("").map(string => {
+        if (!escaped && string == "\\") {
+            escaped = true;
+            return "";
+        }
+        else if (!escaped && string in date._functions) {
+            return date._functions[string](d).toString();
+        }
+        else {
+            escaped = false;
+            return string;
+        }
+    }).join("");
+}
+(function (date_1) {
+    /**
+     * Überprüft, ob eine Zeichenkette ein gültiges Datum (nach dem angegebenen Datumsformat) darstellt
+     *
+     * @param date_string Die zu überprüfende Zeichenkette
+     * @param format Das Datumsformat
+     */
+    function isValid(date_string, format = "Y-m-d") {
+        return date(format, date_string) == date_string;
+    }
+    date_1.isValid = isValid;
+    /**
+     * Diese Zeichenfolgen werden von `date()` benutzt um die Wochentage darzustellen
+     *
+     * Sie werden von `i18n(weekdays[i] , "mpc-date")` übersetzt
+     */
+    date_1.weekdays = [
+        "Sunday",
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday"
+    ];
+    /**
+     * Diese Zeichenfolgen werden von `date()` benutzt um die Monate darzustellen
+     *
+     * Sie werden von `i18n(months[i] , "mpc-date")` übersetzt
+     */
+    date_1.months = [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December"
+    ];
+    /**
+     * Gibt die aktuelle Zeit und Datum in Millisekunden aus.
+     * @param {number | string | Date} timestamp Zahl oder `Date`-Objekt/Zeichenfolge um nicht die aktuelle Zeit zu verwenden
+     * @return {number}
+     */
+    function time(timestamp = new Date) {
+        var d = (timestamp instanceof Date) ? timestamp : new Date(timestamp);
+        return d.getTime();
+    }
+    date_1.time = time;
+    /**
+     * Fügt einer Zahl eine führende 0 hinzu, wenn sie kleiner als 10 ist
+     * @param {number} value Zahl, der eine führende 0 hinzugefügt werden soll
+     * @return {string}
+     * @private
+     */
+    function leadingZero(value) {
+        return value < 10 ? "0" + value : value.toString();
+    }
+    // #region Tag
+    /**
+     * Die verwendeten Funktionen zur mwandlung der Buchstaben
+     * @private
+     */
+    date_1._functions = Object.create(null);
+    /**
+     * Tag des Monats, 2-stellig mit führender Null
+     * 01 bis 31
+     */
+    date_1._functions.d = date => {
+        return leadingZero(date.getDate());
+    };
+    /**
+     * Wochentag, gekürzt auf drei Buchstaben
+     * Mon bis Sun
+     */
+    date_1._functions.D = date => {
+        return i18n(date_1.weekdays[date.getDay()], "mpc-date").substr(0, 3);
+    };
+    /**
+     * Tag des Monats ohne führende Nullen
+     * 1 bis 31
+     */
+    date_1._functions.j = date => {
+        return date.getDate();
+    };
+    /**
+     * Ausgeschriebener Wochentag
+     * Sunday bis Saturday
+     */
+    date_1._functions.l = date => {
+        return i18n(date_1.weekdays[date.getDay()], "mpc-date");
+    };
+    /**
+     * Numerische Repräsentation des Wochentages gemäß ISO-8601 (in PHP 5.1.0 hinzugefügt)
+     * 1 (für Montag) bis 7 (für Sonntag)
+     */
+    date_1._functions.N = date => {
+        return date.getDay() == 0 ? 7 : date.getDay();
+    };
+    /**
+     * Anhang der englischen Aufzählung für einen Monatstag, zwei Zeichen
+     * st, nd, rd oder th
+     * Zur Verwendung mit j empfohlen.
+     */
+    date_1._functions.S = date => {
+        switch (date.getDate()) {
+            case 1:
+                return i18n("st", "mpc-date");
+            case 2:
+                return i18n("nd", "mpc-date");
+            case 3:
+                return i18n("rd", "mpc-date");
+            default:
+                return i18n("th", "mpc-date");
+        }
+    };
+    /**
+     * Numerischer Tag einer Woche
+     * 0 (für Sonntag) bis 6 (für Samstag)
+     */
+    date_1._functions.w = date => {
+        return 7 == date.getDay() ? 0 : date.getDay();
+    };
+    /**
+     * Der Tag des Jahres (von 0 beginnend)
+     * 0 bis 366
+     */
+    date_1._functions.z = date => {
+        return Math.floor((date.getTime() - new Date(date.getFullYear(), 0, 0).getTime()) / 864e5).toString();
+    };
+    // #endregion
+    // #region Woche
+    /**
+     * Der Tag des Jahres (von 0 beginnend)
+     * Beispiel: 42 (die 42. Woche im Jahr)
+     */
+    date_1._functions.W = date => {
+        var tmp_date = new Date(date.getTime() + 864e5 * (3 - (date.getDay() + 6) % 7));
+        return Math.floor(1.5 + (tmp_date.getTime() - new Date(new Date(tmp_date.getFullYear(), 0, 4).getTime() + 864e5 * (3 - (new Date(tmp_date.getFullYear(), 0, 4).getDay() + 6) % 7)).getTime()) / 864e5 / 7);
+    };
+    // #endregion
+    // #region Monat
+    /**
+     * Monat als ganzes Wort, wie January oder March
+     * January bis December
+     */
+    date_1._functions.F = date => {
+        return i18n(date_1.months[date.getMonth()], "mpc-date");
+    };
+    /**
+     * Monat als Zahl, mit führenden Nullen
+     * 01 bis 12
+     */
+    date_1._functions.m = date => {
+        return leadingZero(date.getMonth() + 1);
+    };
+    /**
+     * Monatsname mit drei Buchstaben
+     * Jan bis Dec
+     */
+    date_1._functions.M = date => {
+        return i18n(date_1.months[date.getMonth()], "mpc-date").substr(0, 3);
+    };
+    /**
+     * Monatszahl, ohne führende Nullen
+     * 1 bis 12
+     */
+    date_1._functions.n = date => {
+        return date.getMonth() + 1;
+    };
+    /**
+     * Anzahl der Tage des angegebenen Monats
+     * 28 bis 31
+     */
+    date_1._functions.t = date => {
+        switch (date.getMonth()) {
+            case 1:
+                if (date.getFullYear() % 4 == 0 &&
+                    date.getFullYear() % 100 != 0) {
+                    return "29";
+                }
+                else {
+                    return "28";
+                }
+            case 3:
+            case 5:
+            case 8:
+            case 10:
+                return "30";
+            default:
+                return "31";
+        }
+    };
+    // #endregion
+    // #region Jahr
+    /**
+     * Schaltjahr oder nicht
+     * 1 für ein Schaltjahr, ansonsten 0
+     */
+    date_1._functions.L = date => {
+        return date.getFullYear() % 4 == 0 && date.getFullYear() % 100 != 0 ? 1 : 0;
+    };
+    /**
+     * Jahreszahl der Kalenderwoche gemäß ISO-8601. Dies ergibt den gleichen Wert wie Y, außer wenn die ISO-Kalenderwoche (W) zum vorhergehenden oder nächsten Jahr gehört, wobei dann jenes Jahr verwendet wird (in PHP 5.1.0 hinzugefügt).
+     * Beispiele: 1999 oder 2003
+     */
+    date_1._functions.o = date => {
+        var tmp_d = new Date(date.toISOString());
+        tmp_d.setDate(date.getDate() - (date.getDay() == 0 ? 7 : date.getDay()) + 1);
+        return tmp_d.getFullYear();
+    };
+    /**
+     * Vierstellige Jahreszahl
+     * Beispiele: 1999 oder 2003
+     */
+    date_1._functions.Y = date => {
+        return date.getFullYear();
+    };
+    /**
+     * Jahreszahl, zweistellig
+     * Beispiele: 99 oder 03
+     */
+    date_1._functions.y = date => {
+        var year = date.getFullYear().toString();
+        return year.substr(year.length - 2, 2);
+    };
+    // #endregion
+    // #region Uhrzeit
+    /**
+     * Kleingeschrieben: Ante meridiem (Vormittag) und Post meridiem (Nachmittag)
+     * am oder pm
+     */
+    date_1._functions.a = date => {
+        if (date.getHours() > 12) {
+            return i18n("pm", "mpc-date");
+        }
+        return i18n("am", "mpc-date");
+    };
+    /**
+     * Großgeschrieben: Ante meridiem (Vormittag) und Post meridiem (Nachmittag)
+     * AM oder PM
+     */
+    date_1._functions.A = date => {
+        if (date.getHours() > 12) {
+            return i18n("PM", "mpc-date");
+        }
+        return i18n("AM", "mpc-date");
+    };
+    /**
+     * Swatch-Internet-Zeit
+     * 000 - 999
+     */
+    date_1._functions.B = () => {
+        server.error("date(): B is currently not supported");
+        return "B";
+    };
+    /**
+     * Stunde im 12-Stunden-Format, ohne führende Nullen
+     * 1 bis 12
+     */
+    date_1._functions.g = date => {
+        return date.getHours() > 12 ? date.getHours() - 11 : date.getHours() + 1;
+    };
+    /**
+     * Stunde im 24-Stunden-Format, ohne führende Nullen
+     * 0 bis 23
+     */
+    date_1._functions.G = date => {
+        return date.getHours() + 1;
+    };
+    /**
+     * Stunde im 12-Stunden-Format, mit führenden Nullen
+     * 01 bis 12
+     */
+    date_1._functions.h = date => {
+        return leadingZero(date.getHours() > 12 ? date.getHours() - 11 : date.getHours() + 1);
+    };
+    /**
+     * Stunde im 24-Stunden-Format, mit führenden Nullen
+     * 00 bis 23
+     */
+    date_1._functions.H = date => {
+        return leadingZero(date.getHours() + 1);
+    };
+    /**
+     * Minuten, mit führenden Nullen
+     * 00 bis 59
+     */
+    date_1._functions.i = date => {
+        return leadingZero(date.getMinutes());
+    };
+    /**
+     * Sekunden, mit führenden Nullen
+     * 00 bis 59
+     */
+    date_1._functions.s = date => {
+        return leadingZero(date.getSeconds());
+    };
+    /**
+     * Mikrosekunden (hinzugefügt in PHP 5.2.2). Beachten Sie, dass date() immer die Ausgabe 000000 erzeugen wird, da es einen Integer als Parameter erhält, wohingegen DateTime::format() Mikrosekunden unterstützt, wenn DateTime mit Mikrosekunden erzeugt wurde.
+     * Beispiel: 654321
+     */
+    date_1._functions.u = date => {
+        return date.getMilliseconds();
+    };
+    /**
+     * Millisekunden (hinzugefügt in PHP 7.0.0). Es gelten die selben Anmerkungen wie für u.
+     * Example: 654
+     */
+    date_1._functions.v = date => {
+        return date.getMilliseconds();
+    };
+    // #endregion
+    // #region Zeitzone
+    date_1._functions.e = () => {
+        server.error("date(): e is currently not supported");
+        return "e";
+    };
+    /**
+     * Fällt ein Datum in die Sommerzeit
+     * 1 bei Sommerzeit, ansonsten 0.
+     */
+    date_1._functions.I = () => {
+        server.error("date(): I is currently not supported");
+        return "I";
+    };
+    /**
+     * Zeitunterschied zur Greenwich time (GMT) in Stunden
+     * Beispiel: +0200
+     */
+    date_1._functions.O = () => {
+        server.error("date(): O is currently not supported");
+        return "O";
+    };
+    /**
+     * Zeitunterschied zur Greenwich time (GMT) in Stunden mit Doppelpunkt zwischen Stunden und Minuten (hinzugefügt in PHP 5.1.3)
+     * Beispiel: +02:00
+     */
+    date_1._functions.P = () => {
+        server.error("date(): P is currently not supported");
+        return "P";
+    };
+    /**
+     * Abkürzung der Zeitzone
+     * Beispiele: EST, MDT ...
+     */
+    date_1._functions.T = () => {
+        server.error("date(): T is currently not supported");
+        return "T";
+    };
+    /**
+     * Offset der Zeitzone in Sekunden. Der Offset für Zeitzonen westlich von UTC ist immer negativ und für Zeitzonen östlich von UTC immer positiv.
+     * -43200 bis 50400
+     */
+    date_1._functions.Z = () => {
+        server.error("date(): Z is currently not supported");
+        return "Z";
+    };
+    // #endregion
+    // #region Vollständige(s) Datum/Uhrzeit
+    /**
+     * ISO 8601 Datum (hinzugefügt in PHP 5)
+     * 2004-02-12T15:19:21+00:00
+     */
+    date_1._functions.c = () => {
+        server.error("date(): c is currently not supported");
+        return "c";
+    };
+    /**
+     * Gemäß » RFC 2822 formatiertes Datum
+     * Beispiel: Thu, 21 Dec 2000 16:01:07 +0200
+     */
+    date_1._functions.r = () => {
+        server.error("date(): r is currently not supported");
+        return "r";
+    };
+    /**
+     * Sekunden seit Beginn der UNIX-Epoche (January 1 1970 00:00:00 GMT)
+     * Siehe auch time()
+     */
+    date_1._functions.U = date => {
+        return date.getTime();
+    };
+    //#endregion
+})(date || (date = {}));
+/// <reference no-default-lib="true" />
+/// <reference path="index.ts" />
 class IndexedDB extends EventTarget {
     [Symbol.toStringTag] = "IndexedDB";
     static STATE_CLOSED = 0;
@@ -54,6 +518,7 @@ class IndexedDB extends EventTarget {
                     },
                     result: request.result
                 }));
+                this.#dequeue();
                 resolve(this);
             });
             request.addEventListener("upgradeneeded", () => {
@@ -1075,7 +1540,7 @@ class Server extends EventTarget {
     #version;
     #cacheName = "ServerCache-20211226";
     #scope = registration.scope.replace(/\/$/, "");
-    #regex_safe_scope = registration.scope.escape(String.ESCAPE_REGEXP, "\\");
+    #regex_safe_scope = this.#scope.escape(String.ESCAPE_REGEXP, "\\");
     #online = navigator.onLine;
     #idb = new IndexedDB("Server", 1, {
         settings: {
@@ -1086,10 +1551,12 @@ class Server extends EventTarget {
         },
         routes: {
             name: "routes",
-            autoIncrement: false,
-            keyPath: "path",
+            autoIncrement: true,
             indices: [
-                { name: "by_priority", keyPath: "priority", multiEntry: false, unique: false }
+                { name: "by_priority", keyPath: "priority", multiEntry: false, unique: false },
+                { name: "by_string", keyPath: "string", multiEntry: false, unique: false },
+                { name: "by_key", keyPath: "key", multiEntry: false, unique: false },
+                { name: "by_function", keyPath: "function", multiEntry: false, unique: false }
             ]
         },
         log: {
@@ -1170,7 +1637,7 @@ class Server extends EventTarget {
                 string: this.#scope + "/serviceworker.js",
                 ignoreCase: true,
                 storage: "cache",
-                key: this.#scope + "/serviceworker.js"
+                key: (this.#scope + "/serviceworker.js")
             });
             let promises = [];
             this.dispatchEvent(new ServerEvent("beforestart", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
@@ -1181,6 +1648,15 @@ class Server extends EventTarget {
             await Promise.all(promises);
             return this;
         })();
+        this.registerResponseFunction("redirect", {}, (request, files, args) => {
+            return new Response("", {
+                headers: {
+                    Location: args[0]
+                },
+                status: 302,
+                statusText: "Found"
+            });
+        });
     }
     #loadedScripts = new Map([
         [null, null]
@@ -1205,7 +1681,7 @@ class Server extends EventTarget {
         return this.#loadedScripts.get(id);
     }
     async install() {
-        // console.log("server called 'install'", { server, routes: this.#routes });
+        console.log("server called 'install'", { this: this });
         let promises = [];
         this.dispatchEvent(new ServerEvent("beforeinstall", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
         await Promise.all(promises);
@@ -1218,9 +1694,10 @@ class Server extends EventTarget {
         skipWaiting();
         this.dispatchEvent(new ServerEvent("afterinstall", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
         await Promise.all(promises);
+        console.log("server finished 'install'", { this: this });
     }
     async update() {
-        // console.log("server called 'update'", { server, routes: this.#routes });
+        console.log("server called 'update'", { this: this });
         let promises = [];
         this.dispatchEvent(new ServerEvent("beforeupdate", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
         await Promise.all(promises);
@@ -1233,19 +1710,27 @@ class Server extends EventTarget {
             this.log("Cache erfolgreich gelöscht");
             let cache = await caches.open(this.#cacheName);
             await Promise.all((await this.#idb.get("routes", { storage: "cache" })).map((route) => cache.add(route.key)));
-            this.warn("Caching files not implemented yet!");
+            await Promise.all((await this.#idb.get("routes", { storage: "static" })).map(async (route) => {
+                if (route.key.startsWith("local://")) {
+                    return;
+                }
+                await this.registerAsset(route.key, await (await globalThis.fetch(route.key)).blob());
+            }));
+            await this.registerAsset("local://null", new Blob(["server.log('script local://null loaded');"], { type: "application/javascript" }));
             this.log("Dateien erfolgreich in den Cache geladen");
             this.dispatchEvent(new ServerEvent("afterupdate", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
             await Promise.all(promises);
+            console.log("server finished 'update'", { this: this });
             return true;
         }
         catch (e) {
             this.error(e.message, e.stack);
+            console.error("server failed 'update'", { this: this, error: e });
             return false;
         }
     }
     async activate() {
-        // console.log("server called 'activate'", { server, routes: this.#routes });
+        console.log("server called 'activate'", { this: this });
         let promises = [];
         this.dispatchEvent(new ServerEvent("beforeactivate", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
         await Promise.all(promises);
@@ -1260,13 +1745,15 @@ class Server extends EventTarget {
         this.log("Serviceworker erfolgreich aktiviert (Version: " + this.#version + ")");
         this.dispatchEvent(new ServerEvent("afteractivate", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
         await Promise.all(promises);
+        console.log("server finished 'activate'", { this: this });
     }
     async start() {
-        // console.log("server called 'start'", { server, routes: this.#routes });
+        console.log("server called 'start'", { this: this });
         let promises = [];
         this.dispatchEvent(new ServerEvent("start", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
         await Promise.all(promises);
         this.#start.resolve(null);
+        console.log("server finished 'start'", { this: this });
     }
     async fetch(input, init) {
         // console.log("server called 'fetch'", { server, routes: this.#routes, arguments });
@@ -1293,7 +1780,7 @@ class Server extends EventTarget {
             let index = routes.length;
             let hasError = false;
             while (response === null &&
-                index >= 0) {
+                index > 0) {
                 index--;
                 let route = routes[index];
                 if (route.storage == "cache") {
@@ -1321,7 +1808,12 @@ class Server extends EventTarget {
                     });
                     if (this.#responseFunctions.has(route.function)) {
                         try {
-                            response = await this.#responseFunctions.get(route.function)(request, route.arguments);
+                            let files = {};
+                            let responseFunctionDefinition = this.#responseFunctions.get(route.function);
+                            Object.keys(responseFunctionDefinition.assets).map(key => {
+                                files[key] = new CacheResponse(responseFunctionDefinition.assets[key]);
+                            });
+                            response = await responseFunctionDefinition.responseFunction(request, files, route.arguments);
                         }
                         catch (error) {
                             this.error(error);
@@ -1353,15 +1845,15 @@ class Server extends EventTarget {
             }
             else {
                 if (hasError) {
-                    response = await this.errorResponse("See log for more info", {
+                    response = await this.errorResponse("Error 500: Internal Server Error\nSee log for more info", {
                         status: 500,
-                        statusText: "Internal ServiceWorker Error"
+                        statusText: "Internal Server Error"
                     });
                 }
                 else {
-                    response = await this.errorResponse("See log for more info", {
+                    response = await this.errorResponse("Error 404: Not found\nSee log for more info", {
                         status: 404,
-                        statusText: "File not found."
+                        statusText: "Not Found."
                     });
                 }
             }
@@ -1370,7 +1862,7 @@ class Server extends EventTarget {
             this.error(error);
             response = await this.errorResponse(error, {
                 status: 500,
-                statusText: "Internal ServiceWorker Error",
+                statusText: "Internal Server Error",
             });
         }
         this.dispatchEvent(new ServerEvent("afterfetch", { cancelable: false, group: "fetch", data: { url: typeof input == "string" ? input : input.url, request, response, respondWith(r) { respondWithResponse = r; } } }));
@@ -1451,8 +1943,19 @@ class Server extends EventTarget {
         }
     }
     #responseFunctions = new Map();
-    registerResponseFunction(id, responseFunction) {
-        this.#responseFunctions.set(id, responseFunction);
+    async registerResponseFunction(id, assets, responseFunction) {
+        await Promise.all(Object.values(assets).map(async (asset) => {
+            if (asset.startsWith("local://")) {
+                return;
+            }
+            if ((await this.#idb.count("assets", { id: asset })) == 0) {
+                this.registerAsset(asset, await (await globalThis.fetch(asset)).blob());
+            }
+        }));
+        this.#responseFunctions.set(id, {
+            assets: assets,
+            responseFunction
+        });
     }
     async errorResponse(error, responseInit = {
         headers: {
@@ -1468,12 +1971,22 @@ class Server extends EventTarget {
     }
     async registerAsset(id, blob) {
         await this.#idb.put("assets", { id, blob });
+        await this.registerRoute({
+            priority: 1,
+            type: "string",
+            string: id,
+            ignoreCase: true,
+            storage: "static",
+            key: id
+        });
     }
     async registerRedirection(routeSelector, destination) {
         await this.#idb.add("routes", Object.assign({
+            storage: "dynamic",
             priority: 0,
-            script: null,
+            script: "local://null",
             function: "redirect",
+            files: {},
             arguments: [destination]
         }, routeSelector));
     }
@@ -1831,480 +2344,16 @@ class Server extends EventTarget {
     }
 }
 /// <reference no-default-lib="true" />
-/// <reference path="index.ts" />
-Number.prototype.toFloatingString = function (decimals) {
-    let value = this.toString();
-    if (decimals > 0) {
-        let floatings = new Array(decimals).fill(0).join("");
-        if (value.indexOf(".") > -1) {
-            let split = value.split(".");
-            if (split[1].length >= floatings.length) {
-                return split[0] + "." + split[1].substr(0, floatings.length);
-            }
-            else {
-                return value + floatings.substr(split[1].length);
-            }
-        }
-        else {
-            return value + "." + floatings;
-        }
-    }
-    else {
-        return value.split(".")[0];
-    }
-};
-String.prototype.toRegExp = function (flags = "") {
-    return new RegExp(this.replace(/([\\\/\[\]\{\}\?\*\+\.\^\$\(\)\:\=\!\|\,])/g, "\\$1"), flags);
-};
-String.prototype.escape = function (escapable = "", escapeWith) {
-    return this.replace(new RegExp(escapable.replace(/([\\\/\[\]\{\}\?\*\+\.\^\$\(\)\:\=\!\|\,])/g, "\\$1"), "g"), escapeWith.replace(/([\\\/\[\]\{\}\?\*\+\.\^\$\(\)\:\=\!\|\,])/g, "\\$1") + "$1");
-};
-String.ESCAPE_REGEXP = "\\/[]{}?*+.^$():=!|,";
-EventTarget.prototype.awaitEventListener = function awaitEventListener(resolve_type, reject_type = "error") {
-    return new Promise((resolve, reject) => {
-        let resolveCallback = (event) => {
-            resolve(event);
-            this.removeEventListener(resolve_type, resolveCallback);
-            this.removeEventListener(reject_type, rejectCallback);
-        };
-        let rejectCallback = (event) => {
-            reject(event);
-            this.removeEventListener(resolve_type, resolveCallback);
-            this.removeEventListener(reject_type, rejectCallback);
-        };
-        this.addEventListener(resolve_type, resolveCallback, { once: true });
-        this.addEventListener(reject_type, rejectCallback, { once: true });
-    });
-};
-/**
- * replace i18n, if it is not available
- */
-// @ts-ignore
-let i18n = self.i18n || ((text) => text.toString());
-/**
- * Formatiert ein(e) angegebene(s) Ortszeit/Datum gemäß PHP 7
- * @param {string} string die Zeichenfolge, die umgewandelt wird
- * @param {number | string | Date} timestamp der zu verwendende Zeitpunkt
- * @return {string}
- */
-function date(string, timestamp = new Date) {
-    var d = (timestamp instanceof Date) ? timestamp : new Date(timestamp);
-    var escaped = false;
-    return string.split("").map(string => {
-        if (!escaped && string == "\\") {
-            escaped = true;
-            return "";
-        }
-        else if (!escaped && string in date._functions) {
-            return date._functions[string](d).toString();
-        }
-        else {
-            escaped = false;
-            return string;
-        }
-    }).join("");
-}
-(function (date_1) {
-    /**
-     * Überprüft, ob eine Zeichenkette ein gültiges Datum (nach dem angegebenen Datumsformat) darstellt
-     *
-     * @param date_string Die zu überprüfende Zeichenkette
-     * @param format Das Datumsformat
-     */
-    function isValid(date_string, format = "Y-m-d") {
-        return date(format, date_string) == date_string;
-    }
-    date_1.isValid = isValid;
-    /**
-     * Diese Zeichenfolgen werden von `date()` benutzt um die Wochentage darzustellen
-     *
-     * Sie werden von `i18n(weekdays[i] , "mpc-date")` übersetzt
-     */
-    date_1.weekdays = [
-        "Sunday",
-        "Monday",
-        "Tuesday",
-        "Wednesday",
-        "Thursday",
-        "Friday",
-        "Saturday"
-    ];
-    /**
-     * Diese Zeichenfolgen werden von `date()` benutzt um die Monate darzustellen
-     *
-     * Sie werden von `i18n(months[i] , "mpc-date")` übersetzt
-     */
-    date_1.months = [
-        "January",
-        "February",
-        "March",
-        "April",
-        "May",
-        "June",
-        "July",
-        "August",
-        "September",
-        "October",
-        "November",
-        "December"
-    ];
-    /**
-     * Gibt die aktuelle Zeit und Datum in Millisekunden aus.
-     * @param {number | string | Date} timestamp Zahl oder `Date`-Objekt/Zeichenfolge um nicht die aktuelle Zeit zu verwenden
-     * @return {number}
-     */
-    function time(timestamp = new Date) {
-        var d = (timestamp instanceof Date) ? timestamp : new Date(timestamp);
-        return d.getTime();
-    }
-    date_1.time = time;
-    /**
-     * Fügt einer Zahl eine führende 0 hinzu, wenn sie kleiner als 10 ist
-     * @param {number} value Zahl, der eine führende 0 hinzugefügt werden soll
-     * @return {string}
-     * @private
-     */
-    function leadingZero(value) {
-        return value < 10 ? "0" + value : value.toString();
-    }
-    // #region Tag
-    /**
-     * Die verwendeten Funktionen zur mwandlung der Buchstaben
-     * @private
-     */
-    date_1._functions = Object.create(null);
-    /**
-     * Tag des Monats, 2-stellig mit führender Null
-     * 01 bis 31
-     */
-    date_1._functions.d = date => {
-        return leadingZero(date.getDate());
-    };
-    /**
-     * Wochentag, gekürzt auf drei Buchstaben
-     * Mon bis Sun
-     */
-    date_1._functions.D = date => {
-        return i18n(date_1.weekdays[date.getDay()], "mpc-date").substr(0, 3);
-    };
-    /**
-     * Tag des Monats ohne führende Nullen
-     * 1 bis 31
-     */
-    date_1._functions.j = date => {
-        return date.getDate();
-    };
-    /**
-     * Ausgeschriebener Wochentag
-     * Sunday bis Saturday
-     */
-    date_1._functions.l = date => {
-        return i18n(date_1.weekdays[date.getDay()], "mpc-date");
-    };
-    /**
-     * Numerische Repräsentation des Wochentages gemäß ISO-8601 (in PHP 5.1.0 hinzugefügt)
-     * 1 (für Montag) bis 7 (für Sonntag)
-     */
-    date_1._functions.N = date => {
-        return date.getDay() == 0 ? 7 : date.getDay();
-    };
-    /**
-     * Anhang der englischen Aufzählung für einen Monatstag, zwei Zeichen
-     * st, nd, rd oder th
-     * Zur Verwendung mit j empfohlen.
-     */
-    date_1._functions.S = date => {
-        switch (date.getDate()) {
-            case 1:
-                return i18n("st", "mpc-date");
-            case 2:
-                return i18n("nd", "mpc-date");
-            case 3:
-                return i18n("rd", "mpc-date");
-            default:
-                return i18n("th", "mpc-date");
-        }
-    };
-    /**
-     * Numerischer Tag einer Woche
-     * 0 (für Sonntag) bis 6 (für Samstag)
-     */
-    date_1._functions.w = date => {
-        return 7 == date.getDay() ? 0 : date.getDay();
-    };
-    /**
-     * Der Tag des Jahres (von 0 beginnend)
-     * 0 bis 366
-     */
-    date_1._functions.z = date => {
-        return Math.floor((date.getTime() - new Date(date.getFullYear(), 0, 0).getTime()) / 864e5).toString();
-    };
-    // #endregion
-    // #region Woche
-    /**
-     * Der Tag des Jahres (von 0 beginnend)
-     * Beispiel: 42 (die 42. Woche im Jahr)
-     */
-    date_1._functions.W = date => {
-        var tmp_date = new Date(date.getTime() + 864e5 * (3 - (date.getDay() + 6) % 7));
-        return Math.floor(1.5 + (tmp_date.getTime() - new Date(new Date(tmp_date.getFullYear(), 0, 4).getTime() + 864e5 * (3 - (new Date(tmp_date.getFullYear(), 0, 4).getDay() + 6) % 7)).getTime()) / 864e5 / 7);
-    };
-    // #endregion
-    // #region Monat
-    /**
-     * Monat als ganzes Wort, wie January oder March
-     * January bis December
-     */
-    date_1._functions.F = date => {
-        return i18n(date_1.months[date.getMonth()], "mpc-date");
-    };
-    /**
-     * Monat als Zahl, mit führenden Nullen
-     * 01 bis 12
-     */
-    date_1._functions.m = date => {
-        return leadingZero(date.getMonth() + 1);
-    };
-    /**
-     * Monatsname mit drei Buchstaben
-     * Jan bis Dec
-     */
-    date_1._functions.M = date => {
-        return i18n(date_1.months[date.getMonth()], "mpc-date").substr(0, 3);
-    };
-    /**
-     * Monatszahl, ohne führende Nullen
-     * 1 bis 12
-     */
-    date_1._functions.n = date => {
-        return date.getMonth() + 1;
-    };
-    /**
-     * Anzahl der Tage des angegebenen Monats
-     * 28 bis 31
-     */
-    date_1._functions.t = date => {
-        switch (date.getMonth()) {
-            case 1:
-                if (date.getFullYear() % 4 == 0 &&
-                    date.getFullYear() % 100 != 0) {
-                    return "29";
-                }
-                else {
-                    return "28";
-                }
-            case 3:
-            case 5:
-            case 8:
-            case 10:
-                return "30";
-            default:
-                return "31";
-        }
-    };
-    // #endregion
-    // #region Jahr
-    /**
-     * Schaltjahr oder nicht
-     * 1 für ein Schaltjahr, ansonsten 0
-     */
-    date_1._functions.L = date => {
-        return date.getFullYear() % 4 == 0 && date.getFullYear() % 100 != 0 ? 1 : 0;
-    };
-    /**
-     * Jahreszahl der Kalenderwoche gemäß ISO-8601. Dies ergibt den gleichen Wert wie Y, außer wenn die ISO-Kalenderwoche (W) zum vorhergehenden oder nächsten Jahr gehört, wobei dann jenes Jahr verwendet wird (in PHP 5.1.0 hinzugefügt).
-     * Beispiele: 1999 oder 2003
-     */
-    date_1._functions.o = date => {
-        var tmp_d = new Date(date.toISOString());
-        tmp_d.setDate(date.getDate() - (date.getDay() == 0 ? 7 : date.getDay()) + 1);
-        return tmp_d.getFullYear();
-    };
-    /**
-     * Vierstellige Jahreszahl
-     * Beispiele: 1999 oder 2003
-     */
-    date_1._functions.Y = date => {
-        return date.getFullYear();
-    };
-    /**
-     * Jahreszahl, zweistellig
-     * Beispiele: 99 oder 03
-     */
-    date_1._functions.y = date => {
-        var year = date.getFullYear().toString();
-        return year.substr(year.length - 2, 2);
-    };
-    // #endregion
-    // #region Uhrzeit
-    /**
-     * Kleingeschrieben: Ante meridiem (Vormittag) und Post meridiem (Nachmittag)
-     * am oder pm
-     */
-    date_1._functions.a = date => {
-        if (date.getHours() > 12) {
-            return i18n("pm", "mpc-date");
-        }
-        return i18n("am", "mpc-date");
-    };
-    /**
-     * Großgeschrieben: Ante meridiem (Vormittag) und Post meridiem (Nachmittag)
-     * AM oder PM
-     */
-    date_1._functions.A = date => {
-        if (date.getHours() > 12) {
-            return i18n("PM", "mpc-date");
-        }
-        return i18n("AM", "mpc-date");
-    };
-    /**
-     * Swatch-Internet-Zeit
-     * 000 - 999
-     */
-    date_1._functions.B = () => {
-        server.error("date(): B is currently not supported");
-        return "B";
-    };
-    /**
-     * Stunde im 12-Stunden-Format, ohne führende Nullen
-     * 1 bis 12
-     */
-    date_1._functions.g = date => {
-        return date.getHours() > 12 ? date.getHours() - 11 : date.getHours() + 1;
-    };
-    /**
-     * Stunde im 24-Stunden-Format, ohne führende Nullen
-     * 0 bis 23
-     */
-    date_1._functions.G = date => {
-        return date.getHours() + 1;
-    };
-    /**
-     * Stunde im 12-Stunden-Format, mit führenden Nullen
-     * 01 bis 12
-     */
-    date_1._functions.h = date => {
-        return leadingZero(date.getHours() > 12 ? date.getHours() - 11 : date.getHours() + 1);
-    };
-    /**
-     * Stunde im 24-Stunden-Format, mit führenden Nullen
-     * 00 bis 23
-     */
-    date_1._functions.H = date => {
-        return leadingZero(date.getHours() + 1);
-    };
-    /**
-     * Minuten, mit führenden Nullen
-     * 00 bis 59
-     */
-    date_1._functions.i = date => {
-        return leadingZero(date.getMinutes());
-    };
-    /**
-     * Sekunden, mit führenden Nullen
-     * 00 bis 59
-     */
-    date_1._functions.s = date => {
-        return leadingZero(date.getSeconds());
-    };
-    /**
-     * Mikrosekunden (hinzugefügt in PHP 5.2.2). Beachten Sie, dass date() immer die Ausgabe 000000 erzeugen wird, da es einen Integer als Parameter erhält, wohingegen DateTime::format() Mikrosekunden unterstützt, wenn DateTime mit Mikrosekunden erzeugt wurde.
-     * Beispiel: 654321
-     */
-    date_1._functions.u = date => {
-        return date.getMilliseconds();
-    };
-    /**
-     * Millisekunden (hinzugefügt in PHP 7.0.0). Es gelten die selben Anmerkungen wie für u.
-     * Example: 654
-     */
-    date_1._functions.v = date => {
-        return date.getMilliseconds();
-    };
-    // #endregion
-    // #region Zeitzone
-    date_1._functions.e = () => {
-        server.error("date(): e is currently not supported");
-        return "e";
-    };
-    /**
-     * Fällt ein Datum in die Sommerzeit
-     * 1 bei Sommerzeit, ansonsten 0.
-     */
-    date_1._functions.I = () => {
-        server.error("date(): I is currently not supported");
-        return "I";
-    };
-    /**
-     * Zeitunterschied zur Greenwich time (GMT) in Stunden
-     * Beispiel: +0200
-     */
-    date_1._functions.O = () => {
-        server.error("date(): O is currently not supported");
-        return "O";
-    };
-    /**
-     * Zeitunterschied zur Greenwich time (GMT) in Stunden mit Doppelpunkt zwischen Stunden und Minuten (hinzugefügt in PHP 5.1.3)
-     * Beispiel: +02:00
-     */
-    date_1._functions.P = () => {
-        server.error("date(): P is currently not supported");
-        return "P";
-    };
-    /**
-     * Abkürzung der Zeitzone
-     * Beispiele: EST, MDT ...
-     */
-    date_1._functions.T = () => {
-        server.error("date(): T is currently not supported");
-        return "T";
-    };
-    /**
-     * Offset der Zeitzone in Sekunden. Der Offset für Zeitzonen westlich von UTC ist immer negativ und für Zeitzonen östlich von UTC immer positiv.
-     * -43200 bis 50400
-     */
-    date_1._functions.Z = () => {
-        server.error("date(): Z is currently not supported");
-        return "Z";
-    };
-    // #endregion
-    // #region Vollständige(s) Datum/Uhrzeit
-    /**
-     * ISO 8601 Datum (hinzugefügt in PHP 5)
-     * 2004-02-12T15:19:21+00:00
-     */
-    date_1._functions.c = () => {
-        server.error("date(): c is currently not supported");
-        return "c";
-    };
-    /**
-     * Gemäß » RFC 2822 formatiertes Datum
-     * Beispiel: Thu, 21 Dec 2000 16:01:07 +0200
-     */
-    date_1._functions.r = () => {
-        server.error("date(): r is currently not supported");
-        return "r";
-    };
-    /**
-     * Sekunden seit Beginn der UNIX-Epoche (January 1 1970 00:00:00 GMT)
-     * Siehe auch time()
-     */
-    date_1._functions.U = date => {
-        return date.getTime();
-    };
-    //#endregion
-})(date || (date = {}));
-/// <reference no-default-lib="true" />
 /// <reference lib="esnext" />
 /// <reference lib="webworker" />
 /// <reference path="serviceworker.d.ts" />
+/// <reference path="helper.ts" />
 /// <reference path="cacheresponse.ts" />
 /// <reference path="indexeddb.ts" />
 /// <reference path="indexeddbindex.ts" />
 /// <reference path="indexeddbevent.ts" />
 /// <reference path="serverevent.ts" />
 /// <reference path="server.ts" />
-/// <reference path="helper.ts" />
 // const DEBUG_MODE = "online";
 const server = new Server();
 /// <reference no-default-lib="true" />
@@ -2412,7 +2461,9 @@ class Scope {
         }
     }
     statusText = "OK";
-    #headers = new Headers();
+    #headers = new Headers({
+        "Content-Type": "text/html;charset=utf8"
+    });
     get headers() {
         return this.#headers;
     }
@@ -2451,6 +2502,9 @@ class Scope {
      * @param template Der Template-String
      */
     async build(template) {
+        if (template instanceof CacheResponse) {
+            template = await template.text();
+        }
         let matches = template.match(/\{\{ (generate_[a-z0-9_]+)\(([a-z0-9_, -+]*)\) \}\}/g);
         if (matches) {
             for (let value of matches) {
@@ -2517,7 +2571,7 @@ class Scope {
     htmlspecialchars(string) {
         return string.toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
     }
-    #styles;
+    #styles = {};
     /**
      * Fügt ein Stylesheet hinzu oder ändert ein bestehendes
      *
@@ -2539,7 +2593,7 @@ class Scope {
     remove_style(id) {
         delete this.#styles[id];
     }
-    #scripts;
+    #scripts = {};
     /**
      * Fügt ein Skript hinzu
      *
@@ -2560,7 +2614,7 @@ class Scope {
     remove_script(id) {
         delete this.#scripts[id];
     }
-    #menus;
+    #menus = {};
     add_menu_item(path, label, href, submenu = this.#menus) {
         let patharray = path.split("/");
         let id = patharray.shift();
@@ -2596,19 +2650,22 @@ class Scope {
      * @param escape Gibt an, wie die Zeichenfolge formatiert werden soll
      */
     generate_value(index, escape) {
+        if (!this.data) {
+            return "Failed to load data";
+        }
+        if ((index in this.data) === false) {
+            return `Index '${index}' not found`;
+        }
         switch (escape) {
             case "html":
-                return this.htmlspecialchars(this.data[index].toString());
+                return this.htmlspecialchars(String(this.data[index]));
             case "url":
-                return encodeURI(this.data[index].toString());
+                return encodeURI(String(this.data[index]));
             case "json":
                 return JSON.stringify(this.data[index]);
             case "plain":
             default:
-                if (index in this.data) {
-                    return "toString" in this.data[index] ? this.data[index].toString() : this.data[index];
-                }
-                return `Index '${index}' not found`;
+                return String(this.data[index]);
         }
     }
     /**
@@ -2780,25 +2837,24 @@ class Scope {
 /// <reference path="../config.ts" />
 /// <reference path="../plugins/scope.ts" />
 server.registerRoute({
-    priority: 0,
+    priority: 2,
     type: "string",
     string: server.scope + "/debug",
     ignoreCase: true,
     storage: "dynamic",
-    script: null,
+    script: "local://null",
     function: server.scope + "/debug",
     arguments: []
 });
-server.registerResponseFunction(server.scope + "/debug", async (request, args) => {
+server.registerResponseFunction(server.scope + "/debug", {
+    "mpc.css": server.scope + "/client/css/mpc.css",
+    "main.css": server.scope + "/client/css/main.css",
+    "print.css": server.scope + "/client/css/print.css",
+    "debug.css": server.scope + "/client/css/debug.css",
+    "main.js": server.scope + "/client/js/main.js",
+    "layout.html": server.scope + "/client/html/layout.html"
+}, async (request, files, args) => {
     let scope = new Scope(request);
-    let files = {
-        "mpc.css": new CacheResponse(server.scope + "/client/css/mpc.css"),
-        "main.css": new CacheResponse(server.scope + "/client/css/main.css"),
-        "print.css": new CacheResponse(server.scope + "/client/css/print.css"),
-        "debug.css": new CacheResponse(server.scope + "/client/css/debug.css"),
-        "main.js": new CacheResponse(server.scope + "/client/js/main.js"),
-        "layout.html": new CacheResponse(server.scope + "/client/html/layout.html")
-    };
     scope.add_style("mpc-css", files["mpc.css"]);
     scope.add_style("main-css", files["main.css"]);
     scope.add_style("print-css", files["print.css"], "print");
@@ -2808,59 +2864,69 @@ server.registerResponseFunction(server.scope + "/debug", async (request, args) =
     if (scope.GET.clear_logs == "1") {
         await server.clearLog();
     }
-    let props = new Map();
-    let counters = new Map();
-    function expand_property(prop, prefix = "") {
+    function expand_property(props, prop, prefix = "", is_prototype = false) {
+        if (!props.counters) {
+            props.counters = new Map();
+        }
         if (typeof prop == "function" ||
             typeof prop == "object" && prop !== null) {
-            if (props.has(prop)) {
+            if (!is_prototype && props.has(prop)) {
                 return `<div class="value-non-primitive">${prefix}<span class="value type-${typeof prop}"><a href="#${scope.htmlspecialchars(encodeURIComponent(props.get(prop)))}">${props.get(prop)}</a></span></div>`;
             }
             let obj_id;
             if (typeof prop == "function") {
                 obj_id = scope.htmlspecialchars(prop.toString().split(" ", 1)[0] == "class" ? "class" : "function") + " " + scope.htmlspecialchars(prop.name);
-                let count = counters.get(obj_id) || 0;
-                counters.set(obj_id, ++count);
-                obj_id += `#${count}(${scope.htmlspecialchars(prop.length)} argument${prop.length == 1 ? "" : "s"})`;
-                props.set(prop, obj_id);
+                if (!props.has(prop)) {
+                    let count = props.counters.get(obj_id) || 0;
+                    props.counters.set(obj_id, ++count);
+                    obj_id += `#${count}(${scope.htmlspecialchars(prop.length)} argument${prop.length == 1 ? "" : "s"})`;
+                    props.set(prop, obj_id);
+                }
             }
             else {
                 obj_id = Object.prototype.toString.call(prop).replace(/^\[object (.*)\]$/, "$1");
-                let count = counters.get(obj_id) || 0;
-                counters.set(obj_id, ++count);
-                obj_id += "#" + count;
-                props.set(prop, obj_id);
+                if (!props.has(prop)) {
+                    let count = props.counters.get(obj_id) || 0;
+                    props.counters.set(obj_id, ++count);
+                    obj_id += "#" + count;
+                    props.set(prop, obj_id);
+                }
             }
             return `<details class="value-non-primitive" id="${scope.htmlspecialchars(encodeURIComponent(props.get(prop)))}"><summary>${prefix}<span class="value type-${typeof prop}">${obj_id}</span></summary>${[Object.getOwnPropertyNames(prop), Object.getOwnPropertySymbols(prop)].flat().map(key => {
                 let desc = Object.getOwnPropertyDescriptor(prop, key);
                 let html = "";
                 if (typeof desc.get == "function") {
-                    html += `<div class="property-${desc.enumerable ? "" : "non-"}enumerable">${expand_property(desc.get, `<span class="property-key"><span class="property-descriptor">get</span> ${scope.htmlspecialchars(key.toString())}</span>: `)}</div>`;
+                    html += `<div class="property-${desc.enumerable ? "" : "non-"}enumerable">${expand_property(props, desc.get, `<span class="property-key"><span class="property-descriptor">get</span> ${scope.htmlspecialchars(key.toString())}</span>: `)}</div>`;
                 }
                 if (typeof desc.set == "function") {
-                    html += `<div class="property-${desc.enumerable ? "" : "non-"}enumerable">${expand_property(desc.set, `<span class="property-key"><span class="property-descriptor">set</span> ${scope.htmlspecialchars(key.toString())}</span>: `)}</div>`;
+                    html += `<div class="property-${desc.enumerable ? "" : "non-"}enumerable">${expand_property(props, desc.set, `<span class="property-key"><span class="property-descriptor">set</span> ${scope.htmlspecialchars(key.toString())}</span>: `)}</div>`;
                 }
                 if (typeof desc.get != "function" &&
                     typeof desc.set != "function") {
-                    html += `<div class="property-${desc.enumerable ? "" : "non-"}enumerable">${expand_property(desc.value, `<span class="property-key">${desc.writable ? "" : `<span class="property-descriptor">readonly</span> `}${scope.htmlspecialchars(key.toString())}</span>: `)}</div>`;
+                    html += `<div class="property-${desc.enumerable ? "" : "non-"}enumerable">${expand_property(props, desc.value, `<span class="property-key">${desc.writable ? "" : `<span class="property-descriptor">readonly</span> `}${scope.htmlspecialchars(key.toString())}</span>: `)}</div>`;
                 }
                 return html;
-            }).join("") + `<div class="property-non-enumerable">${expand_property(Object.getPrototypeOf(prop), `<span class="property-key"><span class="property-descriptor">[[Prototype]]:</span></span> `)}`}</details>`;
+            }).join("") + `<div class="property-non-enumerable">${expand_property(props, Object.getPrototypeOf(prop), `<span class="property-key"><span class="property-descriptor">[[Prototype]]:</span></span> `, true)}`}</details>`;
         }
         else {
             return `<div class="value-primitive">${prefix}<span class="value type-${typeof prop}">${scope.htmlspecialchars("" + prop)}</span></div>`;
         }
     }
-    main += `<div class="server"><h2>Server</h2>${expand_property(server)}</div>`;
+    main += `<div class="server"><h2>Server</h2>${expand_property(new Map(), server)}</div>`;
     main += `<div class="log">
   <h2>Log</h2>
   <input type="checkbox" id="hide_log" hidden />
   <input type="checkbox" id="hide_warn" hidden />
   <input type="checkbox" id="hide_error" hidden />
-  ${(await server.getLog()).map(entry => `<details class="log-${scope.htmlspecialchars("" + entry.type)}">
-    <summary><span class="timestamp">${scope.htmlspecialchars(date("d.m.Y h:i:s", entry.timestamp))}</span> ${scope.htmlspecialchars("" + entry.message)}</summary>
-    <pre>${scope.htmlspecialchars("" + entry.stack)}</pre>
-  </details>`).join("\n")}
+  ${(await server.getLog()).map(entry => {
+        if (entry.stack) {
+            return `<details class="log-${scope.htmlspecialchars("" + entry.type)}">
+      <summary><span class="timestamp">${scope.htmlspecialchars(date("d.m.Y h:i:s", entry.timestamp))}</span> ${expand_property(new Map(), entry.message)}</summary>
+      ${expand_property(new Map(), entry.stack)}
+    </details>`;
+        }
+        return `<div class="log-${scope.htmlspecialchars("" + entry.type)}"><span class="timestamp">${scope.htmlspecialchars(date("d.m.Y h:i:s", entry.timestamp))}</span> ${scope.htmlspecialchars("" + entry.message)}</div>`;
+    }).join("\n")}
   <div class="sticky-footer">
     <a class="mpc-button" href="${server.scope}/debug?clear_logs=1">Alles l&ouml;schen</a>
     <label class="mpc-button" for="hide_log">Log ${await scope.generate_log_badge("log")}</label>
@@ -2875,26 +2941,26 @@ server.registerResponseFunction(server.scope + "/debug", async (request, args) =
 /// <reference no-default-lib="true" />
 /// <reference path="../config.ts" />
 server.registerRoute({
+    priority: 2,
     type: "regexp",
     regexp: new RegExp("^" + server.regex_safe_scope + "\\/(index(.[a-z0-9]+)?)?$", "g"),
     storage: "dynamic",
-    script: null,
+    script: "local://null",
     function: server.scope + "/index.html",
     arguments: []
 });
-server.registerResponseFunction(server.scope + "/index.html", async (request, args) => {
-    let files = {
-        "mpc.css": new CacheResponse(server.scope + "/client/css/mpc.css"),
-        "main.css": new CacheResponse(server.scope + "/client/css/main.css"),
-        "print.css": new CacheResponse(server.scope + "/client/css/print.css"),
-        "main.js": new CacheResponse(server.scope + "/client/js/main.js"),
-        "layout.html": new CacheResponse(server.scope + "/client/html/layout.html")
-    };
+server.registerResponseFunction(server.scope + "/index.html", {
+    "mpc.css": server.scope + "/client/css/mpc.css",
+    "main.css": server.scope + "/client/css/main.css",
+    "print.css": server.scope + "/client/css/print.css",
+    "main.js": server.scope + "/client/js/main.js",
+    "layout.html": server.scope + "/client/html/layout.html"
+}, async (request, files, args) => {
     let scope = new Scope(request);
-    scope.add_style("mpc-css", this.files["mpc.css"]);
-    scope.add_style("main-css", this.files["main.css"]);
-    scope.add_style("print-css", this.files["print.css"], "print");
-    scope.add_script("main-js", this.files["main.js"]);
+    scope.add_style("mpc-css", files["mpc.css"]);
+    scope.add_style("main-css", files["main.css"]);
+    scope.add_style("print-css", files["print.css"], "print");
+    scope.add_script("main-js", files["main.js"]);
     scope.page_title = "Startseite";
     scope.data = {
         main: `<ul>
@@ -2903,11 +2969,12 @@ server.registerResponseFunction(server.scope + "/index.html", async (request, ar
 <li><a href="/list">Liste</a></li>
 </ul>`,
     };
-    return new Response(await this.build(files["layout.html"]), scope);
+    return new Response(await scope.build(files["layout.html"]), scope);
 });
 /// <reference no-default-lib="true" />
 /// <reference path="../config.ts" />
 server.registerRedirection({
+    priority: 1,
     type: "regexp",
     regexp: new RegExp("^" + server.regex_safe_scope + "/install(.[a-z0-9]+)?$", "i")
 }, "/");
@@ -2919,11 +2986,11 @@ server.registerRoute({
     string: server.scope + "/manifest.webmanifest",
     ignoreCase: true,
     storage: "dynamic",
-    script: null,
+    script: "local://null",
     function: server.scope + "/manifest.webmanifest",
     arguments: []
 });
-server.registerResponseFunction(server.scope + "/manifest.webmanifest", (request, args) => {
+server.registerResponseFunction(server.scope + "/manifest.webmanifest", {}, (request, files, args) => {
     let manifest = {
         name: server.getSetting("site-title"),
         short_name: server.getSetting("site-title"),

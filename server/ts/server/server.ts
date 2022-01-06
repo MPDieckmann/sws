@@ -7,8 +7,8 @@ class Server extends EventTarget {
   static readonly server: Server = new Server();
   #version: string;
   readonly #cacheName = "ServerCache-20211226";
-  readonly #scope = registration.scope.replace(/\/$/, "");
-  readonly #regex_safe_scope = registration.scope.escape(String.ESCAPE_REGEXP, "\\");
+  readonly #scope = <`https://${string}`>registration.scope.replace(/\/$/, "");
+  readonly #regex_safe_scope = this.#scope.escape(String.ESCAPE_REGEXP, "\\");
   #online: boolean = navigator.onLine;
   #idb = new IndexedDB<{
     settings: {
@@ -17,7 +17,7 @@ class Server extends EventTarget {
     }
     routes: {
       Records: Route;
-      Indices: "by_priority";
+      Indices: "by_priority" | "by_function" | "by_key" | "by_string";
     }
     log: {
       Records: { type: string, message: IndexedDBSupportedDataTypes, stack: IndexedDBSupportedDataTypes, timestamp: number };
@@ -36,10 +36,12 @@ class Server extends EventTarget {
     },
     routes: {
       name: "routes",
-      autoIncrement: false,
-      keyPath: "path",
+      autoIncrement: true,
       indices: [
-        { name: "by_priority", keyPath: "priority", multiEntry: false, unique: false }
+        { name: "by_priority", keyPath: "priority", multiEntry: false, unique: false },
+        { name: "by_string", keyPath: "string", multiEntry: false, unique: false },
+        { name: "by_key", keyPath: "key", multiEntry: false, unique: false },
+        { name: "by_function", keyPath: "function", multiEntry: false, unique: false }
       ]
     },
     log: {
@@ -130,7 +132,7 @@ class Server extends EventTarget {
         string: this.#scope + "/serviceworker.js",
         ignoreCase: true,
         storage: "cache",
-        key: this.#scope + "/serviceworker.js"
+        key: <`https://${string}`>(this.#scope + "/serviceworker.js")
       });
 
       let promises: PromiseLike<void>[] = [];
@@ -143,6 +145,16 @@ class Server extends EventTarget {
       await Promise.all(promises);
       return this;
     })();
+
+    this.registerResponseFunction("redirect", {}, (request, files, args: [string]) => {
+      return new Response("", {
+        headers: {
+          Location: args[0]
+        },
+        status: 302,
+        statusText: "Found"
+      });
+    });
   }
 
   #loadedScripts: Map<string, any> = new Map([
@@ -167,7 +179,7 @@ class Server extends EventTarget {
   }
 
   async install(): Promise<void> {
-    // console.log("server called 'install'", { server, routes: this.#routes });
+    console.log("server called 'install'", { this: this });
     let promises: PromiseLike<void>[] = [];
     this.dispatchEvent(new ServerEvent("beforeinstall", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
     await Promise.all(promises);
@@ -180,9 +192,10 @@ class Server extends EventTarget {
     skipWaiting();
     this.dispatchEvent(new ServerEvent("afterinstall", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
     await Promise.all(promises);
+    console.log("server finished 'install'", { this: this });
   }
   async update(): Promise<boolean> {
-    // console.log("server called 'update'", { server, routes: this.#routes });
+    console.log("server called 'update'", { this: this });
     let promises: PromiseLike<void>[] = [];
     this.dispatchEvent(new ServerEvent("beforeupdate", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
     await Promise.all(promises);
@@ -204,18 +217,35 @@ class Server extends EventTarget {
           (route: CacheRoute) => cache.add(route.key)
         )
       );
-      this.warn("Caching files not implemented yet!");
+      await Promise.all(
+        (
+          await this.#idb.get(
+            "routes",
+            { storage: "static" }
+          )
+        ).map(
+          async (route: StaticRoute) => {
+            if (route.key.startsWith("local://")) {
+              return;
+            }
+            await this.registerAsset(route.key, await (await globalThis.fetch(route.key)).blob());
+          }
+        )
+      );
+      await this.registerAsset("local://null", new Blob(["server.log('script local://null loaded');"], { type: "application/javascript" }));
       this.log("Dateien erfolgreich in den Cache geladen");
       this.dispatchEvent(new ServerEvent("afterupdate", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
       await Promise.all(promises);
+      console.log("server finished 'update'", { this: this });
       return true;
     } catch (e) {
       this.error(e.message, e.stack);
+      console.error("server failed 'update'", { this: this, error: e });
       return false;
     }
   }
   async activate(): Promise<void> {
-    // console.log("server called 'activate'", { server, routes: this.#routes });
+    console.log("server called 'activate'", { this: this });
     let promises: PromiseLike<void>[] = [];
     this.dispatchEvent(new ServerEvent("beforeactivate", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
     await Promise.all(promises);
@@ -230,13 +260,15 @@ class Server extends EventTarget {
     this.log("Serviceworker erfolgreich aktiviert (Version: " + this.#version + ")");
     this.dispatchEvent(new ServerEvent("afteractivate", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
     await Promise.all(promises);
+    console.log("server finished 'activate'", { this: this });
   }
   async start() {
-    // console.log("server called 'start'", { server, routes: this.#routes });
+    console.log("server called 'start'", { this: this });
     let promises: PromiseLike<void>[] = [];
     this.dispatchEvent(new ServerEvent("start", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
     await Promise.all(promises);
     this.#start.resolve(null);
+    console.log("server finished 'start'", { this: this });
   }
   async fetch(input: RequestInfo, init?: RequestInit): Promise<Response> {
     // console.log("server called 'fetch'", { server, routes: this.#routes, arguments });
@@ -274,7 +306,7 @@ class Server extends EventTarget {
       let hasError = false;
       while (
         response === null &&
-        index >= 0
+        index > 0
       ) {
         index--;
         let route = routes[index];
@@ -300,7 +332,12 @@ class Server extends EventTarget {
           });
           if (this.#responseFunctions.has(route.function)) {
             try {
-              response = await this.#responseFunctions.get(route.function)(request, route.arguments);
+              let files = {};
+              let responseFunctionDefinition = this.#responseFunctions.get(route.function);
+              Object.keys(responseFunctionDefinition.assets).map(key => {
+                files[key] = new CacheResponse(responseFunctionDefinition.assets[key]);
+              });
+              response = await responseFunctionDefinition.responseFunction(request, files, route.arguments);
             } catch (error) {
               this.error(error);
               hasError = true;
@@ -326,14 +363,14 @@ class Server extends EventTarget {
         }
       } else {
         if (hasError) {
-          response = await this.errorResponse("See log for more info", {
+          response = await this.errorResponse("Error 500: Internal Server Error\nSee log for more info", {
             status: 500,
-            statusText: "Internal ServiceWorker Error"
+            statusText: "Internal Server Error"
           });
         } else {
-          response = await this.errorResponse("See log for more info", {
+          response = await this.errorResponse("Error 404: Not found\nSee log for more info", {
             status: 404,
-            statusText: "File not found."
+            statusText: "Not Found."
           });
         }
       }
@@ -341,7 +378,7 @@ class Server extends EventTarget {
       this.error(error);
       response = await this.errorResponse(error, {
         status: 500,
-        statusText: "Internal ServiceWorker Error",
+        statusText: "Internal Server Error",
       });
     }
     this.dispatchEvent(new ServerEvent("afterfetch", { cancelable: false, group: "fetch", data: { url: typeof input == "string" ? input : input.url, request, response, respondWith(r) { respondWithResponse = r; } } }));
@@ -431,9 +468,24 @@ class Server extends EventTarget {
     }
   }
 
-  #responseFunctions: Map<string, (request: Request, args: IndexedDBSupportedDataTypes) => Response | Promise<Response>> = new Map();
-  registerResponseFunction<args extends IndexedDBSupportedDataTypes>(id: string, responseFunction: (request: Request, args: args) => Response | Promise<Response>): void {
-    this.#responseFunctions.set(id, responseFunction);
+  #responseFunctions: Map<string, {
+    assets: Record<string, Link>;
+    responseFunction: (request: Request, files: { [s in string]: CacheResponse; }, args: IndexedDBSupportedDataTypes) => Response | Promise<Response>;
+  }> = new Map();
+  async registerResponseFunction<args extends IndexedDBSupportedDataTypes, Assets extends string>(id: string, assets: Record<Assets, string>, responseFunction: (request: Request, files: Record<Assets, CacheResponse>, args: args) => Response | Promise<Response>) {
+    await Promise.all(Object.values(assets).map(async (asset: Link) => {
+      if (asset.startsWith("local://")) {
+        return;
+      }
+      if ((await this.#idb.count("assets", { id: asset })) == 0) {
+        this.registerAsset(asset, await (await globalThis.fetch(asset)).blob());
+      }
+    }));
+
+    this.#responseFunctions.set(id, {
+      assets: <Record<string, Link>>assets,
+      responseFunction
+    });
   }
   async errorResponse(error: any, responseInit: ResponseInit = {
     headers: {
@@ -447,17 +499,27 @@ class Server extends EventTarget {
   async registerRoute(route: Route): Promise<void> {
     await this.#idb.add("routes", route);
   }
-  async registerAsset(id: string, blob: Blob): Promise<void> {
+  async registerAsset(id: Link, blob: Blob): Promise<void> {
     await this.#idb.put("assets", { id, blob });
+    await this.registerRoute({
+      priority: 1,
+      type: "string",
+      string: id,
+      ignoreCase: true,
+      storage: "static",
+      key: id
+    });
   }
   async registerRedirection(routeSelector: RouteSelector, destination: string) {
     await this.#idb.add(
       "routes",
-      Object.assign(
-        <DynamicRoute>{
+      <DynamicRoute>Object.assign(
+        {
+          storage: "dynamic",
           priority: 0,
-          script: null,
+          script: "local://null",
           function: "redirect",
+          files: {},
           arguments: [destination]
         },
         routeSelector
@@ -875,26 +937,28 @@ interface ServerMessageMap {
 }
 
 type RouteSelector = {
-  priority: 0;
+  priority: number;
   type: "string";
   string: string;
   ignoreCase: boolean;
 } | {
+  priority: number;
   type: "regexp";
   regexp: RegExp;
 };
 type CacheRoute = RouteSelector & {
   storage: "cache";
-  key: string;
+  key: Link<"http" | "https">;
 };
 type StaticRoute = RouteSelector & {
   storage: "static";
-  key: string;
+  key: Link;
 };
 type DynamicRoute = RouteSelector & {
   storage: "dynamic";
-  script: string;
+  script: Link;
   function: string;
   arguments: IndexedDBSupportedDataTypes;
 }
 type Route = CacheRoute | StaticRoute | DynamicRoute;
+type Link<Protocol extends string = "http" | "https" | "local"> = `${Protocol}://${string}`;

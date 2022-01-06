@@ -3,37 +3,97 @@
   border-color: var(--inactive-border-color);
 }
 
-.server>details,
-.log details {
+.server > details,
+.log > details,
+.log > div {
   border-top: 1px dashed;
   font-family: monospace;
-  color: #808;
   background: #fff;
 }
 
-.server>details {
-  padding: 0.5em;
+.server > details {
+  padding: 0.5em !important;
   white-space: nowrap;
   overflow: auto;
 }
 
-.log details {
-  padding: 0.25em 0.25em 0.25em 1.65em;
+.server,
+.log {
+  cursor: default;
+}
+
+.server a,
+.log a {
+  color: #484;
+}
+
+.log > details {
+  padding: 0.25em 0.25em 0.25em 1.5em;
   word-break: break-word;
 }
 
-.log summary {
-  margin: 0 0 0 -1.65em;
-  padding: 0.25em 0.5em;
+.log > details > summary {
+  padding: 0.25em 0.5em 0.25em 0.25em;
+  margin: 0 0 0 -1.25em;
+}
+
+.log > details > summary > details,
+.log > details > summary > div {
+  display: inline-block;
+  vertical-align: top;
+  padding: 0;
+}
+
+.log > details[open] > summary > details,
+.log > details[open] > summary > div {
+  padding-bottom: 0.5em;
+  border-bottom: 1px dashed;
+}
+
+.log>details>details {
+  margin-top: 0.25em;
+}
+
+.log > div {
+  padding: 0.5em 0.75em 0.5em 0.5em;
+  word-break: break-word;
 }
 
 .value-primitive,
 .value-non-primitive {
-  margin: 0 0 0 1em;
+  padding: 0 0 0 1em;
+  color: #808;
+}
+
+div.value-primitive,
+div.value-non-primitive {
+  padding: 0 0 0 1.25em;
+}
+
+.value-primitive > summary,
+.value-non-primitive > summary {
+  padding: 0 0 0 0.25em;
+}
+
+summary:hover {
+  background: #08f1;
+  background-clip: padding-box;
+  border-radius: 0.5em;
+  box-shadow: 0 0 0 1px #08f;
+}
+
+.value-primitive > summary:hover,
+.value-non-primitive > summary:hover,
+div.value-primitive:hover,
+div.value-non-primitive:hover {
+  background: #08f2;
+  background-clip: padding-box;
+  border-radius: 0.25em;
+  box-shadow: 0 0 0 1px #08f;
 }
 
 details.value-non-primitive {
-  margin: 0;
+  padding: 0;
 }
 
 .property-enumerable,
@@ -41,11 +101,11 @@ details.value-non-primitive {
   margin: 0 0 0 1em;
 }
 
-.property-enumerable>.property-key {
+.property-enumerable > .property-key {
   font-weight: bold;
 }
 
-.property-non-enumerable>.property-key {
+.property-non-enumerable > .property-key {
   opacity: 0.75;
 }
 
@@ -76,7 +136,7 @@ details.value-non-primitive {
 
 .type-string::before,
 .type-string::after {
-  content: "\"";
+  content: '"';
 }
 
 .type-symbol {
@@ -99,17 +159,17 @@ details.value-non-primitive {
   overflow: auto;
 }
 
-.log details.log-log {
+.log .log-log {
   color: #000;
   background: #fff;
 }
 
-.log details.log-warn {
+.log .log-warn {
   color: #440;
   background: #fec;
 }
 
-.log details.log-error {
+.log .log-error {
   color: #f00;
   background: #fee;
 }
@@ -133,29 +193,29 @@ details.value-non-primitive {
   text-align: center;
 }
 
-#hide_log:checked~.log-log {
+#hide_log:checked ~ .log-log {
   display: none;
 }
 
-#hide_warn:checked~.log-warn {
+#hide_warn:checked ~ .log-warn {
   display: none;
 }
 
-#hide_error:checked~.log-error {
+#hide_error:checked ~ .log-error {
   display: none;
 }
 
-#hide_log:checked~.sticky-footer label[for="hide_log"] {
+#hide_log:checked ~ .sticky-footer label[for="hide_log"] {
   filter: grayscale(1);
   background-color: #eee;
 }
 
-#hide_warn:checked~.sticky-footer label[for="hide_warn"] {
+#hide_warn:checked ~ .sticky-footer label[for="hide_warn"] {
   filter: grayscale(1);
   background-color: #eee;
 }
 
-#hide_error:checked~.sticky-footer label[for="hide_error"] {
+#hide_error:checked ~ .sticky-footer label[for="hide_error"] {
   filter: grayscale(1);
   background-color: #eee;
 }

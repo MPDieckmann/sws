@@ -23,7 +23,9 @@ class Scope<GET extends string = string, POST extends string = string, Data exte
   }
 
   statusText: string = "OK";
-  #headers: Headers = new Headers();
+  #headers: Headers = new Headers({
+    "Content-Type": "text/html;charset=utf8"
+  });
   get headers() {
     return this.#headers;
   }
@@ -57,8 +59,6 @@ class Scope<GET extends string = string, POST extends string = string, Data exte
 
       return this;
     })();
-
-
   }
 
   /**
@@ -66,7 +66,10 @@ class Scope<GET extends string = string, POST extends string = string, Data exte
    * 
    * @param template Der Template-String
    */
-  async build(template: string): Promise<string> {
+  async build(template: string | CacheResponse): Promise<string> {
+    if (template instanceof CacheResponse) {
+      template = await template.text();
+    }
     let matches = template.match(/\{\{ (generate_[a-z0-9_]+)\(([a-z0-9_, -+]*)\) \}\}/g);
     if (matches) {
       for (let value of matches) {
@@ -142,7 +145,7 @@ class Scope<GET extends string = string, POST extends string = string, Data exte
     return string.toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
   }
 
-  #styles: { [id in string]: { id: id; href: string; media: string; type: string; } }
+  #styles: { [id in string]: { id: id; href: string; media: string; type: string; } } = {};
   /**
    * Fügt ein Stylesheet hinzu oder ändert ein bestehendes
    * 
@@ -166,7 +169,7 @@ class Scope<GET extends string = string, POST extends string = string, Data exte
     delete this.#styles[id];
   }
 
-  #scripts: { [id in string]: { id: id; src: string; type: string; position: string; } }
+  #scripts: { [id in string]: { id: id; src: string; type: string; position: string; } } = {};
   /**
    * Fügt ein Skript hinzu
    * 
@@ -189,7 +192,7 @@ class Scope<GET extends string = string, POST extends string = string, Data exte
     delete this.#scripts[id];
   }
 
-  #menus: ScopeMenu;
+  #menus: ScopeMenu = {};
   /**
    * Fügt einen Menüpunkt hinzu
    * 
@@ -237,19 +240,22 @@ class Scope<GET extends string = string, POST extends string = string, Data exte
    * @param escape Gibt an, wie die Zeichenfolge formatiert werden soll
    */
   generate_value(index: keyof Data, escape: "html" | "url" | "json" | "plain"): string {
+    if (!this.data) {
+      return "Failed to load data";
+    }
+    if ((index in this.data) === false) {
+      return `Index '${index}' not found`;
+    }
     switch (escape) {
       case "html":
-        return this.htmlspecialchars(this.data[index].toString());
+        return this.htmlspecialchars(String(this.data[index]));
       case "url":
-        return encodeURI(this.data[index].toString());
+        return encodeURI(String(this.data[index]));
       case "json":
         return JSON.stringify(this.data[index]);
       case "plain":
       default:
-        if (index in this.data) {
-          return "toString" in this.data[index] ? this.data[index].toString() : this.data[index];
-        }
-        return `Index '${index}' not found`;
+        return String(this.data[index]);
     }
   }
 

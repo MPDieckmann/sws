@@ -61,6 +61,7 @@ class IndexedDB<ObjectStoreDefinitionMap extends { [ObjectStoreName in string]: 
           },
           result: request.result
         }));
+        this.#dequeue();
         resolve(this);
       });
       request.addEventListener("upgradeneeded", () => {
@@ -636,12 +637,17 @@ interface IDBDefinition<Record extends globalThis.Record<string | number, Indexe
   Indices: IndexName;
 }
 
-interface IDBObjectStoreDefinition<ObjectStoreName extends PropertyKey, IndexName extends string> {
+type IDBObjectStoreDefinition<ObjectStoreName extends PropertyKey, IndexName extends string> = {
   name: ObjectStoreName;
-  autoIncrement: boolean;
+  autoIncrement: true;
+  keyPath?: string;
+  indices: IDBIndexConfiguration<IndexName>[];
+} | {
+  name: ObjectStoreName;
+  autoIncrement: false;
   keyPath: string;
   indices: IDBIndexConfiguration<IndexName>[];
-}
+};
 
 interface IDBIndexConfiguration<IndexName extends string> {
   name: IndexName;

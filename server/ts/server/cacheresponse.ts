@@ -10,8 +10,8 @@ class CacheResponse {
   #formData: FormData;
   #json: any;
   #text: string;
-  #url: string;
-  constructor(url: string) {
+  #url: Link;
+  constructor(url: Link) {
     this.#url = url;
   }
   get url() {

@@ -7,12 +7,12 @@ server.registerRoute({
   string: server.scope + "/manifest.webmanifest",
   ignoreCase: true,
   storage: "dynamic",
-  script: null,
+  script: "local://null",
   function: server.scope + "/manifest.webmanifest",
   arguments: []
 });
 
-server.registerResponseFunction(server.scope + "/manifest.webmanifest", (request, args) => {
+server.registerResponseFunction(server.scope + "/manifest.webmanifest", {}, (request, files, args) => {
   let manifest = {
     name: server.getSetting("site-title"),
     short_name: server.getSetting("site-title"),
