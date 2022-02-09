@@ -75,6 +75,13 @@ div.value-non-primitive {
   padding: 0 0 0 0.25em;
 }
 
+.value-non-primitive:target>summary {
+  background: #ffc;
+  background-clip: padding-box;
+  border-radius: 0.5em;
+  box-shadow: 0 0 0 1px #ff0;
+}
+
 summary:hover {
   background: #08f1;
   background-clip: padding-box;
@@ -99,6 +106,8 @@ details.value-non-primitive {
 .property-enumerable,
 .property-non-enumerable {
   margin: 0 0 0 1em;
+  width: max-content;
+  min-width: 100%;
 }
 
 .property-enumerable > .property-key {

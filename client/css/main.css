@@ -13,6 +13,7 @@ h4 {
   margin: 0;
   padding: 15px 10px;
   color: #551285;
+  color: var(--theme-color);
   font: 600 25px/33px "Work Sans", sans-serif;
 }
 
@@ -139,6 +140,7 @@ header h1 {
   width: 20px;
   /* border-radius: 1em; */
   background: #551285;
+  background-color: var(--theme-color);
   background-clip: content-box;
   padding: 31.25px 20px;
 }
@@ -153,6 +155,7 @@ header h1 {
   height: 0.2em;
   /* border-radius: 1em; */
   background: #551285;
+  background-color: var(--theme-color);
 }
 
 .menu-button::after {
@@ -165,6 +168,7 @@ header h1 {
   height: 0.2em;
   /* border-radius: 1em; */
   background: #551285;
+  background-color: var(--theme-color);
 }
 
 .close-menu-button {
@@ -186,6 +190,7 @@ header h1 {
   height: 0.2em;
   border-radius: 1em;
   background: #551285;
+  background-color: var(--theme-color);
   transform: rotate(45deg);
 }
 
@@ -199,6 +204,7 @@ header h1 {
   height: 0.2em;
   border-radius: 1em;
   background: #551285;
+  background-color: var(--theme-color);
   transform: rotate(-45deg);
 }
 
@@ -261,6 +267,7 @@ aside {
   width: 50px;
   height: 50px;
   background: #551285;
+  background-color: var(--theme-color);
   content: "";
   position: absolute;
   left: 10px;

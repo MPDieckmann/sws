@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="de" style="--theme-color:{{ generate_value(theme_color) }}">
+<html lang="de" style="--theme-color:{{ generate_setting(theme-color) }}">
   <head>
     <meta charset="UTF-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="full-screen" content="yes" />
-    <meta name="theme-color" content="{{ generate_value(theme_color) }}" />
+    <meta name="theme-color" content="{{ generate_setting(theme-color) }}" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="{{ generate_title(site) }}" />
@@ -30,11 +30,6 @@
           <label for="menu-switch" class="close-menu-button"></label>
           <h2>{{ generate_title(page) }}</h2>
         </header>
-        <ul class="menu">
-          <li class="menuitem"><a href="/train">Trainieren</a></li>
-          <li class="menuitem"><a href="/debug">Debug</a></li>
-          <li class="menuitem"><a href="/list">Liste</a></li>
-        </ul>
         {{ generate_menu(navigation) }}
         <footer id="menu-footer" class="menu menu-grid">
           <label class="menuitem" for="menu-switch" onclick="setTimeout(print, 410);">Seite drucken</label>

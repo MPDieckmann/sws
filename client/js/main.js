@@ -9,7 +9,7 @@ navigator.serviceWorker.addEventListener("message", event => {
     let message = event.data;
     let source = event.source;
     switch (message.type) {
-        case "set-setting-response":
+        case "set-setting":
             handleSetSettingResponse(message.property, message.value);
             break;
         default:
@@ -20,7 +20,7 @@ navigator.serviceWorker.addEventListener("message", event => {
 function handleSetSettingResponse(property, value) {
     switch (property) {
         case "offline-mode":
-            document.getElementById("switch_offline_mode").checked = value;
+            document.getElementsByName("switch_offline_mode").forEach(entry => entry.checked = value);
             createToast("Offline-Modus wurde " + (value ? "" : "de") + "aktiviert.");
             break;
         default:

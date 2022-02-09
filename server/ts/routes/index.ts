@@ -1,4 +1,3 @@
-/// <reference no-default-lib="true" />
 /// <reference path="../config.ts" />
 
 server.registerRoute({
@@ -30,11 +29,7 @@ server.registerResponseFunction(
 
     scope.page_title = "Startseite";
     scope.data = {
-      main: `<ul>
-<li><a href="/train">Trainieren</a></li>
-<li><a href="/debug">Debug</a></li>
-<li><a href="/list">Liste</a></li>
-</ul>`,
+      main: ``,
     };
 
     return new Response(await scope.build(files["layout.html"]), scope);

@@ -1,4 +1,3 @@
-/// <reference no-default-lib="true" />
 /// <reference path="../config.ts" />
 /// <reference path="../plugins/scope.ts" />
 
@@ -45,15 +44,15 @@ server.registerResponseFunction(server.scope + "/debug", {
       typeof prop == "object" && prop !== null
     ) {
       if (!is_prototype && props.has(prop)) {
-        return `<div class="value-non-primitive">${prefix}<span class="value type-${typeof prop}"><a href="#${scope.htmlspecialchars(encodeURIComponent(props.get(prop)))}">${props.get(prop)}</a></span></div>`;
+        return `<div class="value-non-primitive">${prefix}<span class="value type-${typeof prop}"><a href="#${Scope.htmlspecialchars(encodeURIComponent(props.get(prop)))}">${props.get(prop)}</a></span></div>`;
       }
       let obj_id: string;
       if (typeof prop == "function") {
-        obj_id = scope.htmlspecialchars(prop.toString().split(" ", 1)[0] == "class" ? "class" : "function") + " " + scope.htmlspecialchars(prop.name);
+        obj_id = Scope.htmlspecialchars(prop.toString().split(" ", 1)[0] == "class" ? "class" : "function") + " " + Scope.htmlspecialchars(prop.name);
         if (!props.has(prop)) {
           let count = props.counters.get(obj_id) || 0;
           props.counters.set(obj_id, ++count);
-          obj_id += `#${count}(${scope.htmlspecialchars(prop.length)} argument${prop.length == 1 ? "" : "s"})`;
+          obj_id += `#${count}(${Scope.htmlspecialchars(prop.length)} argument${prop.length == 1 ? "" : "s"})`;
           props.set(prop, obj_id);
         }
       } else {
@@ -65,25 +64,25 @@ server.registerResponseFunction(server.scope + "/debug", {
           props.set(prop, obj_id);
         }
       }
-      return `<details class="value-non-primitive" id="${scope.htmlspecialchars(encodeURIComponent(props.get(prop)))}"><summary>${prefix}<span class="value type-${typeof prop}">${obj_id}</span></summary>${[Object.getOwnPropertyNames(prop), Object.getOwnPropertySymbols(prop)].flat().map(key => {
+      return `<details class="value-non-primitive" id="${Scope.htmlspecialchars(encodeURIComponent(props.get(prop)))}"><summary>${prefix}<span class="value type-${typeof prop}">${obj_id}</span></summary>${[Object.getOwnPropertyNames(prop), Object.getOwnPropertySymbols(prop)].flat().map(key => {
         let desc = Object.getOwnPropertyDescriptor(prop, key);
         let html = "";
         if (typeof desc.get == "function") {
-          html += `<div class="property-${desc.enumerable ? "" : "non-"}enumerable">${expand_property(props, desc.get, `<span class="property-key"><span class="property-descriptor">get</span> ${scope.htmlspecialchars(key.toString())}</span>: `)}</div>`;
+          html += `<div class="property-${desc.enumerable ? "" : "non-"}enumerable">${expand_property(props, desc.get, `<span class="property-key"><span class="property-descriptor">get</span> ${Scope.htmlspecialchars(key.toString())}</span>: `)}</div>`;
         }
         if (typeof desc.set == "function") {
-          html += `<div class="property-${desc.enumerable ? "" : "non-"}enumerable">${expand_property(props, desc.set, `<span class="property-key"><span class="property-descriptor">set</span> ${scope.htmlspecialchars(key.toString())}</span>: `)}</div>`;
+          html += `<div class="property-${desc.enumerable ? "" : "non-"}enumerable">${expand_property(props, desc.set, `<span class="property-key"><span class="property-descriptor">set</span> ${Scope.htmlspecialchars(key.toString())}</span>: `)}</div>`;
         }
         if (
           typeof desc.get != "function" &&
           typeof desc.set != "function"
         ) {
-          html += `<div class="property-${desc.enumerable ? "" : "non-"}enumerable">${expand_property(props, desc.value, `<span class="property-key">${desc.writable ? "" : `<span class="property-descriptor">readonly</span> `}${scope.htmlspecialchars(key.toString())}</span>: `)}</div>`;
+          html += `<div class="property-${desc.enumerable ? "" : "non-"}enumerable">${expand_property(props, desc.value, `<span class="property-key">${desc.writable ? "" : `<span class="property-descriptor">readonly</span> `}${Scope.htmlspecialchars(key.toString())}</span>: `)}</div>`;
         }
         return html;
       }).join("") + `<div class="property-non-enumerable">${expand_property(props, Object.getPrototypeOf(prop), `<span class="property-key"><span class="property-descriptor">[[Prototype]]:</span></span> `, true)}`}</details>`;
     } else {
-      return `<div class="value-primitive">${prefix}<span class="value type-${typeof prop}">${scope.htmlspecialchars("" + prop)}</span></div>`;
+      return `<div class="value-primitive">${prefix}<span class="value type-${typeof prop}">${Scope.htmlspecialchars("" + prop)}</span></div>`;
     }
   }
 
@@ -95,12 +94,12 @@ server.registerResponseFunction(server.scope + "/debug", {
   <input type="checkbox" id="hide_error" hidden />
   ${(await server.getLog()).map(entry => {
     if (entry.stack) {
-      return `<details class="log-${scope.htmlspecialchars("" + entry.type)}">
-      <summary><span class="timestamp">${scope.htmlspecialchars(date("d.m.Y h:i:s", entry.timestamp))}</span> ${expand_property(new Map(), entry.message)}</summary>
+      return `<details class="log-${Scope.htmlspecialchars("" + entry.type)}">
+      <summary><span class="timestamp">${Scope.htmlspecialchars(mpdate("d.m.Y h:i:s", entry.timestamp))}</span> ${expand_property(new Map(), entry.message)}</summary>
       ${expand_property(new Map(), entry.stack)}
     </details>`;
     }
-    return `<div class="log-${scope.htmlspecialchars("" + entry.type)}"><span class="timestamp">${scope.htmlspecialchars(date("d.m.Y h:i:s", entry.timestamp))}</span> ${scope.htmlspecialchars("" + entry.message)}</div>`;
+    return `<div class="log-${Scope.htmlspecialchars("" + entry.type)}"><span class="timestamp">${Scope.htmlspecialchars(mpdate("d.m.Y h:i:s", entry.timestamp))}</span> ${Scope.htmlspecialchars("" + entry.message)}</div>`;
   }).join("\n")}
   <div class="sticky-footer">
     <a class="mpc-button" href="${server.scope}/debug?clear_logs=1">Alles l&ouml;schen</a>

@@ -1,5 +1,3 @@
-/// <reference no-default-lib="true" />
-/// <reference path="index.ts" />
 Number.prototype.toFloatingString = function (decimals) {
     let value = this.toString();
     if (decimals > 0) {
@@ -28,34 +26,84 @@ String.prototype.escape = function (escapable = "", escapeWith) {
     return this.replace(new RegExp(escapable.replace(/([\\\/\[\]\{\}\?\*\+\.\^\$\(\)\:\=\!\|\,])/g, "\\$1"), "g"), escapeWith.replace(/([\\\/\[\]\{\}\?\*\+\.\^\$\(\)\:\=\!\|\,])/g, "\\$1") + "$1");
 };
 String.ESCAPE_REGEXP = "\\/[]{}?*+.^$():=!|,";
-EventTarget.prototype.awaitEventListener = function awaitEventListener(resolve_type, reject_type = "error") {
-    return new Promise((resolve, reject) => {
-        let resolveCallback = (event) => {
-            resolve(event);
-            this.removeEventListener(resolve_type, resolveCallback);
-            this.removeEventListener(reject_type, rejectCallback);
+class MPCacheResponse {
+    constructor(url) {
+        this[Symbol.toStringTag] = "MPCacheResponse";
+        this.#response = null;
+        this.#getResponse = async () => {
+            if (this.#response === null) {
+                this.#response = await fetch(this.url);
+            }
         };
-        let rejectCallback = (event) => {
-            reject(event);
-            this.removeEventListener(resolve_type, resolveCallback);
-            this.removeEventListener(reject_type, rejectCallback);
-        };
-        this.addEventListener(resolve_type, resolveCallback, { once: true });
-        this.addEventListener(reject_type, rejectCallback, { once: true });
-    });
-};
-/**
- * replace i18n, if it is not available
- */
-// @ts-ignore
-let i18n = self.i18n || ((text) => text.toString());
+        this.#url = url;
+    }
+    #response;
+    #arrayBuffer;
+    #blob;
+    #formData;
+    #json;
+    #text;
+    #url;
+    get url() {
+        return this.#url;
+    }
+    #getResponse;
+    async arrayBuffer() {
+        if (this.#response == null) {
+            await this.#getResponse();
+        }
+        if (!this.#arrayBuffer) {
+            this.#arrayBuffer = await this.#response.clone().arrayBuffer();
+        }
+        return this.#arrayBuffer;
+    }
+    async blob() {
+        if (this.#response == null) {
+            await this.#getResponse();
+        }
+        if (!this.#blob) {
+            this.#blob = await this.#response.clone().blob();
+        }
+        return this.#blob;
+    }
+    async formData() {
+        if (this.#response == null) {
+            await this.#getResponse();
+        }
+        if (!this.#formData) {
+            this.#formData = await this.#response.clone().formData();
+        }
+        return this.#formData;
+    }
+    async json() {
+        if (this.#response == null) {
+            await this.#getResponse();
+        }
+        if (!this.#json) {
+            this.#json = await this.#response.clone().json();
+        }
+        return this.#json;
+    }
+    async text() {
+        if (this.#response == null) {
+            await this.#getResponse();
+        }
+        if (!this.#text) {
+            this.#text = await this.#response.clone().text();
+        }
+        return this.#text;
+    }
+    clone() {
+        return new MPCacheResponse(this.#url);
+    }
+}
 /**
  * Formatiert ein(e) angegebene(s) Ortszeit/Datum gemäß PHP 7
  * @param {string} string die Zeichenfolge, die umgewandelt wird
  * @param {number | string | Date} timestamp der zu verwendende Zeitpunkt
  * @return {string}
  */
-function date(string, timestamp = new Date) {
+function mpdate(string, timestamp = new Date) {
     var d = (timestamp instanceof Date) ? timestamp : new Date(timestamp);
     var escaped = false;
     return string.split("").map(string => {
@@ -63,8 +111,8 @@ function date(string, timestamp = new Date) {
             escaped = true;
             return "";
         }
-        else if (!escaped && string in date._functions) {
-            return date._functions[string](d).toString();
+        else if (!escaped && string in mpdate._functions) {
+            return mpdate._functions[string](d).toString();
         }
         else {
             escaped = false;
@@ -72,7 +120,9 @@ function date(string, timestamp = new Date) {
         }
     }).join("");
 }
-(function (date_1) {
+(function (mpdate) {
+    //@ts-ignore
+    let i18n = self.i18n || ((text) => text.toString());
     /**
      * Überprüft, ob eine Zeichenkette ein gültiges Datum (nach dem angegebenen Datumsformat) darstellt
      *
@@ -80,15 +130,15 @@ function date(string, timestamp = new Date) {
      * @param format Das Datumsformat
      */
     function isValid(date_string, format = "Y-m-d") {
-        return date(format, date_string) == date_string;
+        return mpdate(format, date_string) == date_string;
     }
-    date_1.isValid = isValid;
+    mpdate.isValid = isValid;
     /**
      * Diese Zeichenfolgen werden von `date()` benutzt um die Wochentage darzustellen
      *
-     * Sie werden von `i18n(weekdays[i] , "mpc-date")` übersetzt
+     * Sie werden von `i18n(weekdays[i] , "mpdate")` übersetzt
      */
-    date_1.weekdays = [
+    mpdate.weekdays = [
         "Sunday",
         "Monday",
         "Tuesday",
@@ -100,9 +150,9 @@ function date(string, timestamp = new Date) {
     /**
      * Diese Zeichenfolgen werden von `date()` benutzt um die Monate darzustellen
      *
-     * Sie werden von `i18n(months[i] , "mpc-date")` übersetzt
+     * Sie werden von `i18n(months[i] , "mpdate")` übersetzt
      */
-    date_1.months = [
+    mpdate.months = [
         "January",
         "February",
         "March",
@@ -125,7 +175,7 @@ function date(string, timestamp = new Date) {
         var d = (timestamp instanceof Date) ? timestamp : new Date(timestamp);
         return d.getTime();
     }
-    date_1.time = time;
+    mpdate.time = time;
     /**
      * Fügt einer Zahl eine führende 0 hinzu, wenn sie kleiner als 10 ist
      * @param {number} value Zahl, der eine führende 0 hinzugefügt werden soll
@@ -140,40 +190,40 @@ function date(string, timestamp = new Date) {
      * Die verwendeten Funktionen zur mwandlung der Buchstaben
      * @private
      */
-    date_1._functions = Object.create(null);
+    mpdate._functions = Object.create(null);
     /**
      * Tag des Monats, 2-stellig mit führender Null
      * 01 bis 31
      */
-    date_1._functions.d = date => {
+    mpdate._functions.d = date => {
         return leadingZero(date.getDate());
     };
     /**
      * Wochentag, gekürzt auf drei Buchstaben
      * Mon bis Sun
      */
-    date_1._functions.D = date => {
-        return i18n(date_1.weekdays[date.getDay()], "mpc-date").substr(0, 3);
+    mpdate._functions.D = date => {
+        return i18n(mpdate.weekdays[date.getDay()], "mpdate").substr(0, 3);
     };
     /**
      * Tag des Monats ohne führende Nullen
      * 1 bis 31
      */
-    date_1._functions.j = date => {
+    mpdate._functions.j = date => {
         return date.getDate();
     };
     /**
      * Ausgeschriebener Wochentag
      * Sunday bis Saturday
      */
-    date_1._functions.l = date => {
-        return i18n(date_1.weekdays[date.getDay()], "mpc-date");
+    mpdate._functions.l = date => {
+        return i18n(mpdate.weekdays[date.getDay()], "mpdate");
     };
     /**
      * Numerische Repräsentation des Wochentages gemäß ISO-8601 (in PHP 5.1.0 hinzugefügt)
      * 1 (für Montag) bis 7 (für Sonntag)
      */
-    date_1._functions.N = date => {
+    mpdate._functions.N = date => {
         return date.getDay() == 0 ? 7 : date.getDay();
     };
     /**
@@ -181,30 +231,30 @@ function date(string, timestamp = new Date) {
      * st, nd, rd oder th
      * Zur Verwendung mit j empfohlen.
      */
-    date_1._functions.S = date => {
+    mpdate._functions.S = date => {
         switch (date.getDate()) {
             case 1:
-                return i18n("st", "mpc-date");
+                return i18n("st", "mpdate");
             case 2:
-                return i18n("nd", "mpc-date");
+                return i18n("nd", "mpdate");
             case 3:
-                return i18n("rd", "mpc-date");
+                return i18n("rd", "mpdate");
             default:
-                return i18n("th", "mpc-date");
+                return i18n("th", "mpdate");
         }
     };
     /**
      * Numerischer Tag einer Woche
      * 0 (für Sonntag) bis 6 (für Samstag)
      */
-    date_1._functions.w = date => {
+    mpdate._functions.w = date => {
         return 7 == date.getDay() ? 0 : date.getDay();
     };
     /**
      * Der Tag des Jahres (von 0 beginnend)
      * 0 bis 366
      */
-    date_1._functions.z = date => {
+    mpdate._functions.z = date => {
         return Math.floor((date.getTime() - new Date(date.getFullYear(), 0, 0).getTime()) / 864e5).toString();
     };
     // #endregion
@@ -213,7 +263,7 @@ function date(string, timestamp = new Date) {
      * Der Tag des Jahres (von 0 beginnend)
      * Beispiel: 42 (die 42. Woche im Jahr)
      */
-    date_1._functions.W = date => {
+    mpdate._functions.W = date => {
         var tmp_date = new Date(date.getTime() + 864e5 * (3 - (date.getDay() + 6) % 7));
         return Math.floor(1.5 + (tmp_date.getTime() - new Date(new Date(tmp_date.getFullYear(), 0, 4).getTime() + 864e5 * (3 - (new Date(tmp_date.getFullYear(), 0, 4).getDay() + 6) % 7)).getTime()) / 864e5 / 7);
     };
@@ -223,35 +273,35 @@ function date(string, timestamp = new Date) {
      * Monat als ganzes Wort, wie January oder March
      * January bis December
      */
-    date_1._functions.F = date => {
-        return i18n(date_1.months[date.getMonth()], "mpc-date");
+    mpdate._functions.F = date => {
+        return i18n(mpdate.months[date.getMonth()], "mpdate");
     };
     /**
      * Monat als Zahl, mit führenden Nullen
      * 01 bis 12
      */
-    date_1._functions.m = date => {
+    mpdate._functions.m = date => {
         return leadingZero(date.getMonth() + 1);
     };
     /**
      * Monatsname mit drei Buchstaben
      * Jan bis Dec
      */
-    date_1._functions.M = date => {
-        return i18n(date_1.months[date.getMonth()], "mpc-date").substr(0, 3);
+    mpdate._functions.M = date => {
+        return i18n(mpdate.months[date.getMonth()], "mpdate").substr(0, 3);
     };
     /**
      * Monatszahl, ohne führende Nullen
      * 1 bis 12
      */
-    date_1._functions.n = date => {
+    mpdate._functions.n = date => {
         return date.getMonth() + 1;
     };
     /**
      * Anzahl der Tage des angegebenen Monats
      * 28 bis 31
      */
-    date_1._functions.t = date => {
+    mpdate._functions.t = date => {
         switch (date.getMonth()) {
             case 1:
                 if (date.getFullYear() % 4 == 0 &&
@@ -276,14 +326,14 @@ function date(string, timestamp = new Date) {
      * Schaltjahr oder nicht
      * 1 für ein Schaltjahr, ansonsten 0
      */
-    date_1._functions.L = date => {
+    mpdate._functions.L = date => {
         return date.getFullYear() % 4 == 0 && date.getFullYear() % 100 != 0 ? 1 : 0;
     };
     /**
      * Jahreszahl der Kalenderwoche gemäß ISO-8601. Dies ergibt den gleichen Wert wie Y, außer wenn die ISO-Kalenderwoche (W) zum vorhergehenden oder nächsten Jahr gehört, wobei dann jenes Jahr verwendet wird (in PHP 5.1.0 hinzugefügt).
      * Beispiele: 1999 oder 2003
      */
-    date_1._functions.o = date => {
+    mpdate._functions.o = date => {
         var tmp_d = new Date(date.toISOString());
         tmp_d.setDate(date.getDate() - (date.getDay() == 0 ? 7 : date.getDay()) + 1);
         return tmp_d.getFullYear();
@@ -292,14 +342,14 @@ function date(string, timestamp = new Date) {
      * Vierstellige Jahreszahl
      * Beispiele: 1999 oder 2003
      */
-    date_1._functions.Y = date => {
+    mpdate._functions.Y = date => {
         return date.getFullYear();
     };
     /**
      * Jahreszahl, zweistellig
      * Beispiele: 99 oder 03
      */
-    date_1._functions.y = date => {
+    mpdate._functions.y = date => {
         var year = date.getFullYear().toString();
         return year.substr(year.length - 2, 2);
     };
@@ -309,130 +359,130 @@ function date(string, timestamp = new Date) {
      * Kleingeschrieben: Ante meridiem (Vormittag) und Post meridiem (Nachmittag)
      * am oder pm
      */
-    date_1._functions.a = date => {
+    mpdate._functions.a = date => {
         if (date.getHours() > 12) {
-            return i18n("pm", "mpc-date");
+            return i18n("pm", "mpdate");
         }
-        return i18n("am", "mpc-date");
+        return i18n("am", "mpdate");
     };
     /**
      * Großgeschrieben: Ante meridiem (Vormittag) und Post meridiem (Nachmittag)
      * AM oder PM
      */
-    date_1._functions.A = date => {
+    mpdate._functions.A = date => {
         if (date.getHours() > 12) {
-            return i18n("PM", "mpc-date");
+            return i18n("PM", "mpdate");
         }
-        return i18n("AM", "mpc-date");
+        return i18n("AM", "mpdate");
     };
     /**
      * Swatch-Internet-Zeit
      * 000 - 999
      */
-    date_1._functions.B = () => {
-        server.error("date(): B is currently not supported");
+    mpdate._functions.B = () => {
+        console.error("date(): B is currently not supported");
         return "B";
     };
     /**
      * Stunde im 12-Stunden-Format, ohne führende Nullen
      * 1 bis 12
      */
-    date_1._functions.g = date => {
+    mpdate._functions.g = date => {
         return date.getHours() > 12 ? date.getHours() - 11 : date.getHours() + 1;
     };
     /**
      * Stunde im 24-Stunden-Format, ohne führende Nullen
      * 0 bis 23
      */
-    date_1._functions.G = date => {
+    mpdate._functions.G = date => {
         return date.getHours() + 1;
     };
     /**
      * Stunde im 12-Stunden-Format, mit führenden Nullen
      * 01 bis 12
      */
-    date_1._functions.h = date => {
+    mpdate._functions.h = date => {
         return leadingZero(date.getHours() > 12 ? date.getHours() - 11 : date.getHours() + 1);
     };
     /**
      * Stunde im 24-Stunden-Format, mit führenden Nullen
      * 00 bis 23
      */
-    date_1._functions.H = date => {
+    mpdate._functions.H = date => {
         return leadingZero(date.getHours() + 1);
     };
     /**
      * Minuten, mit führenden Nullen
      * 00 bis 59
      */
-    date_1._functions.i = date => {
+    mpdate._functions.i = date => {
         return leadingZero(date.getMinutes());
     };
     /**
      * Sekunden, mit führenden Nullen
      * 00 bis 59
      */
-    date_1._functions.s = date => {
+    mpdate._functions.s = date => {
         return leadingZero(date.getSeconds());
     };
     /**
      * Mikrosekunden (hinzugefügt in PHP 5.2.2). Beachten Sie, dass date() immer die Ausgabe 000000 erzeugen wird, da es einen Integer als Parameter erhält, wohingegen DateTime::format() Mikrosekunden unterstützt, wenn DateTime mit Mikrosekunden erzeugt wurde.
      * Beispiel: 654321
      */
-    date_1._functions.u = date => {
+    mpdate._functions.u = date => {
         return date.getMilliseconds();
     };
     /**
      * Millisekunden (hinzugefügt in PHP 7.0.0). Es gelten die selben Anmerkungen wie für u.
      * Example: 654
      */
-    date_1._functions.v = date => {
+    mpdate._functions.v = date => {
         return date.getMilliseconds();
     };
     // #endregion
     // #region Zeitzone
-    date_1._functions.e = () => {
-        server.error("date(): e is currently not supported");
+    mpdate._functions.e = () => {
+        console.error("date(): e is currently not supported");
         return "e";
     };
     /**
      * Fällt ein Datum in die Sommerzeit
      * 1 bei Sommerzeit, ansonsten 0.
      */
-    date_1._functions.I = () => {
-        server.error("date(): I is currently not supported");
+    mpdate._functions.I = () => {
+        console.error("date(): I is currently not supported");
         return "I";
     };
     /**
      * Zeitunterschied zur Greenwich time (GMT) in Stunden
      * Beispiel: +0200
      */
-    date_1._functions.O = () => {
-        server.error("date(): O is currently not supported");
+    mpdate._functions.O = () => {
+        console.error("date(): O is currently not supported");
         return "O";
     };
     /**
      * Zeitunterschied zur Greenwich time (GMT) in Stunden mit Doppelpunkt zwischen Stunden und Minuten (hinzugefügt in PHP 5.1.3)
      * Beispiel: +02:00
      */
-    date_1._functions.P = () => {
-        server.error("date(): P is currently not supported");
+    mpdate._functions.P = () => {
+        console.error("date(): P is currently not supported");
         return "P";
     };
     /**
      * Abkürzung der Zeitzone
      * Beispiele: EST, MDT ...
      */
-    date_1._functions.T = () => {
-        server.error("date(): T is currently not supported");
+    mpdate._functions.T = () => {
+        console.error("date(): T is currently not supported");
         return "T";
     };
     /**
      * Offset der Zeitzone in Sekunden. Der Offset für Zeitzonen westlich von UTC ist immer negativ und für Zeitzonen östlich von UTC immer positiv.
      * -43200 bis 50400
      */
-    date_1._functions.Z = () => {
-        server.error("date(): Z is currently not supported");
+    mpdate._functions.Z = () => {
+        console.error("date(): Z is currently not supported");
         return "Z";
     };
     // #endregion
@@ -441,1077 +491,965 @@ function date(string, timestamp = new Date) {
      * ISO 8601 Datum (hinzugefügt in PHP 5)
      * 2004-02-12T15:19:21+00:00
      */
-    date_1._functions.c = () => {
-        server.error("date(): c is currently not supported");
+    mpdate._functions.c = () => {
+        console.error("date(): c is currently not supported");
         return "c";
     };
     /**
      * Gemäß » RFC 2822 formatiertes Datum
      * Beispiel: Thu, 21 Dec 2000 16:01:07 +0200
      */
-    date_1._functions.r = () => {
-        server.error("date(): r is currently not supported");
+    mpdate._functions.r = () => {
+        console.error("date(): r is currently not supported");
         return "r";
     };
     /**
      * Sekunden seit Beginn der UNIX-Epoche (January 1 1970 00:00:00 GMT)
      * Siehe auch time()
      */
-    date_1._functions.U = date => {
+    mpdate._functions.U = date => {
         return date.getTime();
     };
     //#endregion
-})(date || (date = {}));
-/// <reference no-default-lib="true" />
-/// <reference path="index.ts" />
-class IndexedDB extends EventTarget {
-    [Symbol.toStringTag] = "IndexedDB";
-    static STATE_CLOSED = 0;
-    static STATE_UPGRADING = 1;
-    static STATE_IDLE = 2;
-    static STATE_OPERATING = 4;
-    STATE_CLOSED = IndexedDB.STATE_CLOSED;
-    STATE_UPGRADING = IndexedDB.STATE_UPGRADING;
-    STATE_IDLE = IndexedDB.STATE_IDLE;
-    STATE_OPERATING = IndexedDB.STATE_OPERATING;
+})(mpdate || (mpdate = {}));
+class MPIDBPromise {
+    constructor(promise) {
+        this.#idb = promise;
+    }
     #idb;
-    #state = this.STATE_CLOSED;
-    #queue = [];
-    #ready;
+    then(onfulfilled, onrejected) {
+        this.#idb.then(onfulfilled, onrejected);
+        return new MPIDBPromise((async () => await this.#idb)());
+    }
+    catch(onrejected) {
+        this.#idb.catch(onrejected);
+        return new MPIDBPromise((async () => await this.#idb)());
+    }
+    finally(onfinally) {
+        this.#idb.finally(onfinally);
+        return new MPIDBPromise((async () => await this.#idb)());
+    }
+    async add(args) {
+        return (await this.#idb).add(args);
+    }
+    async count(args) {
+        // @ts-expect-error
+        return (await this.#idb).count(args);
+    }
+    async delete(args) {
+        // @ts-expect-error
+        return (await this.#idb).delete(args);
+    }
+    async get(args) {
+        // @ts-expect-error
+        return (await this.#idb).get(args);
+    }
+    async getKey(args) {
+        // @ts-expect-error
+        return (await this.#idb).getKey(args);
+    }
+    async index(objectStoreName, index) {
+        return (await this.#idb).index(objectStoreName, index);
+    }
+    async objectStore(objectStoreName) {
+        return (await this.#idb).objectStore(objectStoreName);
+    }
+    async openCursor(args, mode, callback) {
+        // @ts-expect-error
+        return (await this.#idb).openCursor(args, mode, callback);
+    }
+    async put(args) {
+        return (await this.#idb).put(args);
+    }
+}
+class MPIDB {
+    constructor(indexedDB) {
+        this[Symbol.toStringTag] = "MPIDB";
+        this.#index = (objectStoreName, indexName, mode) => {
+            return this.#objectStore(objectStoreName, mode).index(indexName);
+        };
+        this.#objectStore = (objectStoreName, mode) => {
+            return this.#idb.transaction(objectStoreName, mode).objectStore(objectStoreName);
+        };
+        this.#openCursor = (args, mode, callback) => {
+            return new Promise(async (resolve, reject) => {
+                let request = ("indexName" in args && typeof args.indexName == "string"
+                    ? this.#index(args.objectStoreName, args.indexName, mode)
+                    : this.#objectStore(args.objectStoreName, mode)).openCursor("key" in args ? args.key : null, "direction" in args && typeof args.direction == "string" ? args.direction : "next");
+                if ("limit" in args && typeof args.limit == "number" && args.limit > 0) {
+                    let counts = 0;
+                    let limit = args.limit;
+                    request.addEventListener("success", "ranges" in args && args.ranges.length > 0
+                        ? async () => {
+                            let cursor = request.result;
+                            counts++;
+                            if (cursor) {
+                                if (counts < limit &&
+                                    args.ranges.filter(range => range.includes(cursor.value)).length > 0) {
+                                    await callback(cursor);
+                                }
+                                cursor.continue();
+                            }
+                            else {
+                                resolve();
+                            }
+                        }
+                        : async () => {
+                            let cursor = request.result;
+                            if (cursor) {
+                                if (counts < limit) {
+                                    await callback(cursor);
+                                }
+                                cursor.continue();
+                            }
+                            else {
+                                resolve();
+                            }
+                        });
+                }
+                else {
+                    request.addEventListener("success", "ranges" in args && args.ranges.length > 0
+                        ? async () => {
+                            let cursor = request.result;
+                            if (cursor) {
+                                if (args.ranges.filter(range => range.includes(cursor.value)).length > 0) {
+                                    await callback(cursor);
+                                }
+                                cursor.continue();
+                            }
+                            else {
+                                resolve();
+                            }
+                        }
+                        : async () => {
+                            let cursor = request.result;
+                            if (cursor) {
+                                await callback(cursor);
+                                cursor.continue();
+                            }
+                            else {
+                                resolve();
+                            }
+                        });
+                }
+                request.addEventListener("error", () => {
+                    reject(request.error);
+                });
+            });
+        };
+        this.#awaitEvent = (target, resolveType, rejectType) => {
+            return new Promise(function (resolve, reject) {
+                function resolveCallback(event) {
+                    resolve(event);
+                    target.removeEventListener(resolveType, resolveCallback);
+                    target.removeEventListener(rejectType, rejectCallback);
+                }
+                function rejectCallback(event) {
+                    reject(event);
+                    target.removeEventListener(resolveType, resolveCallback);
+                    target.removeEventListener(rejectType, rejectCallback);
+                }
+                target.addEventListener(resolveType, resolveCallback, { once: true });
+                target.addEventListener(rejectType, rejectCallback, { once: true });
+            });
+        };
+        this.#idb = indexedDB;
+        this.#name = indexedDB.name;
+        this.#version = indexedDB.version;
+        this.#objectStoreNames = indexedDB.objectStoreNames;
+        this.#state = "open";
+        this.#idb.addEventListener("abort", () => this.#state = "aborted");
+        this.#idb.addEventListener("close", () => this.#state = "closed");
+    }
+    static open(name, version = null, objectStores = null) {
+        return new MPIDBPromise(new Promise((resolve, reject) => {
+            let request = version ? indexedDB.open(name, version) : indexedDB.open(name);
+            request.addEventListener("success", () => resolve(new MPIDB(request.result)));
+            if (objectStores) {
+                request.addEventListener("upgradeneeded", () => {
+                    let idb = request.result;
+                    let objectStoreNames = Object.keys(objectStores).map(objectStoreName => {
+                        let objectStoreDefinition = objectStores[objectStoreName];
+                        let objectStore = null;
+                        if (idb.objectStoreNames.contains(objectStoreName)) {
+                            let oldObjectStore = idb.transaction(objectStoreName, "readonly").objectStore(objectStoreName);
+                            if (oldObjectStore.autoIncrement != objectStoreDefinition.autoIncrement ||
+                                oldObjectStore.keyPath != objectStoreDefinition.keyPath) {
+                                throw new DOMException("Failed to alter ObjectStore");
+                            }
+                            objectStore = oldObjectStore;
+                        }
+                        if (!objectStore) {
+                            objectStore = idb.createObjectStore(objectStoreDefinition.name, objectStoreDefinition);
+                        }
+                        let indexNames = Object.keys(objectStoreDefinition.indices).map(indexName => {
+                            let indexDefinition = objectStoreDefinition.indices[indexName];
+                            if (objectStore.indexNames.contains(indexDefinition.name)) {
+                                let oldIndex = objectStore.index(indexDefinition.name);
+                                if (oldIndex.keyPath !== indexDefinition.keyPath &&
+                                    oldIndex.multiEntry !== indexDefinition.multiEntry &&
+                                    oldIndex.unique !== indexDefinition.unique) {
+                                    objectStore.deleteIndex(indexDefinition.name);
+                                }
+                            }
+                            if (!objectStore.indexNames.contains(indexDefinition.name)) {
+                                objectStore.createIndex(indexDefinition.name, indexDefinition.keyPath, {
+                                    multiEntry: indexDefinition.multiEntry,
+                                    unique: indexDefinition.unique
+                                });
+                            }
+                            return indexDefinition.name;
+                        });
+                        Array.from(objectStore.indexNames).forEach(indexName => {
+                            if (indexNames.indexOf(indexName) < 0) {
+                                objectStore.deleteIndex(indexName);
+                            }
+                        });
+                        return objectStoreName;
+                    });
+                    Array.from(idb.objectStoreNames).forEach(objectStoreName => {
+                        if (objectStoreNames.indexOf(objectStoreName) < 0) {
+                            idb.deleteObjectStore(objectStoreName);
+                        }
+                    });
+                });
+            }
+            request.addEventListener("error", () => reject(request.error));
+            request.addEventListener("blocked", () => reject(request.error));
+            request.addEventListener("versionchange", () => reject(request.error));
+        }));
+    }
+    #idb;
     #name;
     #version;
-    get ready() {
-        return this.#ready;
-    }
-    get state() {
-        return this.#state;
-    }
+    #objectStoreNames;
+    #state;
     get name() {
         return this.#name;
     }
     get version() {
         return this.#version;
     }
-    constructor(name, version, objectStoreDefinitions) {
-        super();
-        this.#name = name;
-        this.#version = version;
-        this.#ready = new Promise((resolve, reject) => {
-            let request = indexedDB.open(name, version);
-            request.addEventListener("success", () => {
-                this.#version = request.result.version;
-                this.#idb = request.result;
-                this.dispatchEvent(new IndexedDBEvent("statechange", {
-                    cancelable: false,
-                    function: "statechange",
-                    arguments: null,
-                    result: this.STATE_IDLE
-                }));
-                this.#state = this.STATE_IDLE;
-                this.dispatchEvent(new IndexedDBEvent("success", {
-                    cancelable: false,
-                    function: "open",
-                    arguments: {
-                        name,
-                        version,
-                        objectStoreDefinitions: objectStoreDefinitions
-                    },
-                    result: request.result
-                }));
-                this.#dequeue();
-                resolve(this);
-            });
-            request.addEventListener("upgradeneeded", () => {
-                this.#version = request.result.version;
-                this.dispatchEvent(new IndexedDBEvent("statechange", {
-                    cancelable: false,
-                    function: "statechange",
-                    arguments: null,
-                    result: this.STATE_UPGRADING
-                }));
-                this.#state = this.STATE_UPGRADING;
-                this.dispatchEvent(new IndexedDBEvent("upgradeneeded", {
-                    cancelable: false,
-                    function: "open",
-                    arguments: {
-                        name,
-                        version,
-                        objectStoreDefinitions: objectStoreDefinitions
-                    },
-                    result: request.result
-                }));
-                Object.keys(objectStoreDefinitions).forEach(objectStoreName => {
-                    let objectStoreDefinition = objectStoreDefinitions[objectStoreName];
-                    let objectStore = request.result.createObjectStore(objectStoreDefinition.name, objectStoreDefinition);
-                    objectStoreDefinition.indices.forEach(index => {
-                        objectStore.createIndex(index.name, index.keyPath, index);
-                    });
-                });
-            });
-            request.addEventListener("error", () => {
-                this.dispatchEvent(new IndexedDBEvent("error", {
-                    cancelable: false,
-                    function: "open",
-                    arguments: {
-                        name,
-                        version,
-                        objectStoreDefinitions: objectStoreDefinitions
-                    },
-                    error: request.error
-                }));
-                this.dispatchEvent(new IndexedDBEvent("statechange", {
-                    cancelable: false,
-                    function: "statechange",
-                    arguments: null,
-                    result: this.STATE_CLOSED
-                }));
-                this.#state = this.STATE_CLOSED;
-                reject(request.error);
-            });
-            request.addEventListener("blocked", () => {
-                this.dispatchEvent(new IndexedDBEvent("blocked", {
-                    cancelable: false,
-                    function: "open",
-                    arguments: {
-                        name,
-                        version,
-                        objectStoreDefinitions: objectStoreDefinitions
-                    },
-                    error: request.error
-                }));
-                this.dispatchEvent(new IndexedDBEvent("statechange", {
-                    cancelable: false,
-                    function: "statechange",
-                    arguments: null,
-                    result: this.STATE_CLOSED
-                }));
-                this.#state = this.STATE_CLOSED;
-                reject(request.error);
-            });
-        });
-    }
-    async #dequeue() {
-        if (this.#state == this.STATE_IDLE && this.#queue.length > 0) {
-            this.dispatchEvent(new IndexedDBEvent("statechange", {
-                cancelable: false,
-                function: "statechange",
-                arguments: null,
-                result: this.STATE_OPERATING
-            }));
-            this.#state = this.STATE_OPERATING;
-            // console.log("IndexedDB: operating");
-            let task;
-            while (task = this.#queue.shift()) {
-                try {
-                    await task();
-                }
-                catch (error) {
-                    console.error(error);
-                }
-            }
-            this.dispatchEvent(new IndexedDBEvent("statechange", {
-                cancelable: false,
-                function: "statechange",
-                arguments: null,
-                result: this.STATE_IDLE
-            }));
-            this.#state = this.STATE_IDLE;
-            // console.log("IndexedDB: idle");
-        }
-    }
-    #add(objectStoreName, record) {
-        return new Promise(async (resolve, reject) => {
-            await this.#ready;
-            let request = this.#idb.transaction([objectStoreName], "readwrite").objectStore(objectStoreName).add(record);
-            request.addEventListener("success", () => {
-                this.dispatchEvent(new IndexedDBEvent("success", {
-                    cancelable: false,
-                    function: "add",
-                    arguments: {
-                        objectStoreName,
-                        record,
-                    },
-                    result: request.result
-                }));
-                resolve(request.result);
-            });
-            request.addEventListener("error", () => {
-                this.dispatchEvent(new IndexedDBEvent("error", {
-                    cancelable: false,
-                    function: "add",
-                    arguments: {
-                        objectStoreName,
-                        record
-                    },
-                    error: request.error
-                }));
-                reject(request.error);
-            });
-        });
-    }
-    #put(objectStoreName, record) {
-        return new Promise(async (resolve, reject) => {
-            await this.#ready;
-            let request = this.#idb.transaction([objectStoreName], "readwrite").objectStore(objectStoreName).put(record);
-            request.addEventListener("success", () => {
-                this.dispatchEvent(new IndexedDBEvent("success", {
-                    cancelable: false,
-                    function: "put",
-                    arguments: {
-                        objectStoreName,
-                        record
-                    },
-                    result: request.result
-                }));
-                resolve(request.result);
-            });
-            request.addEventListener("error", () => {
-                this.dispatchEvent(new IndexedDBEvent("error", {
-                    cancelable: false,
-                    function: "put",
-                    arguments: {
-                        objectStoreName,
-                        record
-                    },
-                    error: request.error
-                }));
-                reject(request.error);
-            });
-        });
-    }
-    #get(objectStoreName, query) {
-        let results = [];
-        return this.#cursor(objectStoreName, "readonly", typeof query == "function" ? async (cursor) => {
-            if (await query(cursor.value)) {
-                results.push(cursor.value);
-            }
-        } : cursor => {
-            if (this.#record_matches_query(cursor.value, query)) {
-                results.push(cursor.value);
-            }
-        }).then(() => {
-            this.dispatchEvent(new IndexedDBEvent("success", {
-                cancelable: false,
-                function: "get",
-                arguments: {
-                    objectStoreName,
-                    callback: typeof query == "function" ? query : null,
-                    query: typeof query == "function" ? null : query
-                },
-                result: results
-            }));
-            return results;
-        }, reason => {
-            this.dispatchEvent(new IndexedDBEvent("error", {
-                cancelable: false,
-                function: "get",
-                arguments: {
-                    objectStoreName,
-                    callback: typeof query == "function" ? query : null,
-                    query: typeof query == "function" ? null : query
-                },
-                error: reason
-            }));
-            throw reason;
-        });
-    }
-    #getAll(objectStoreName) {
-        return new Promise(async (resolve, reject) => {
-            await this.#ready;
-            let request = this.#idb.transaction([objectStoreName], "readonly").objectStore(objectStoreName).getAll();
-            request.addEventListener("success", () => {
-                this.dispatchEvent(new IndexedDBEvent("success", {
-                    cancelable: false,
-                    function: "get",
-                    arguments: {
-                        objectStoreName,
-                        callback: null,
-                        query: null
-                    },
-                    result: request.result
-                }));
-                resolve(request.result);
-            });
-            request.addEventListener("error", () => {
-                this.dispatchEvent(new IndexedDBEvent("error", {
-                    cancelable: false,
-                    function: "get",
-                    arguments: {
-                        objectStoreName,
-                        callback: null,
-                        query: null
-                    },
-                    error: request.error
-                }));
-                reject(request.error);
-            });
-        });
-    }
-    #count(objectStoreName, query) {
-        let results = 0;
-        return this.#cursor(objectStoreName, "readonly", typeof query == "function" ? async (cursor) => {
-            if (await query(cursor.value)) {
-                results++;
-            }
-        } : cursor => {
-            if (this.#record_matches_query(cursor.value, query)) {
-                results++;
-            }
-        }).then(() => {
-            this.dispatchEvent(new IndexedDBEvent("success", {
-                cancelable: false,
-                function: "count",
-                arguments: {
-                    objectStoreName,
-                    callback: typeof query == "function" ? query : null,
-                    query: typeof query == "function" ? null : query
-                },
-                result: results
-            }));
-            return results;
-        }, reason => {
-            this.dispatchEvent(new IndexedDBEvent("error", {
-                cancelable: false,
-                function: "count",
-                arguments: {
-                    objectStoreName,
-                    callback: typeof query == "function" ? query : null,
-                    query: typeof query == "function" ? null : query
-                },
-                error: reason
-            }));
-            throw reason;
-        });
-    }
-    #countAll(objectStoreName) {
-        return new Promise(async (resolve, reject) => {
-            await this.#ready;
-            let request = this.#idb.transaction([objectStoreName]).objectStore(objectStoreName).count();
-            request.addEventListener("success", () => {
-                this.dispatchEvent(new IndexedDBEvent("success", {
-                    cancelable: false,
-                    function: "count",
-                    arguments: {
-                        objectStoreName,
-                        callback: null,
-                        query: null
-                    },
-                    result: request.result
-                }));
-                resolve(request.result);
-            });
-            request.addEventListener("error", () => {
-                this.dispatchEvent(new IndexedDBEvent("error", {
-                    cancelable: false,
-                    function: "count",
-                    arguments: {
-                        objectStoreName,
-                        callback: null,
-                        query: null
-                    },
-                    error: request.error
-                }));
-                reject(request.error);
-            });
-        });
-    }
-    #delete(objectStoreName, query) {
-        return this.#cursor(objectStoreName, "readwrite", typeof query == "function" ? async (cursor) => {
-            if (await query(cursor.value)) {
-                await new Promise((resolve, reject) => {
-                    let request = cursor.delete();
-                    request.addEventListener("success", () => {
-                        resolve();
-                    });
-                    request.addEventListener("error", () => reject(request.error));
-                });
-            }
-        } : async (cursor) => {
-            if (this.#record_matches_query(cursor.value, query)) {
-                await new Promise((resolve, reject) => {
-                    let request = cursor.delete();
-                    request.addEventListener("success", () => {
-                        resolve();
-                    });
-                    request.addEventListener("error", () => reject(request.error));
-                });
-            }
-        }).then(() => {
-            this.dispatchEvent(new IndexedDBEvent("success", {
-                cancelable: false,
-                function: "delete",
-                arguments: {
-                    objectStoreName,
-                    callback: typeof query == "function" ? query : null,
-                    query: typeof query == "function" ? null : query
-                },
-                result: null
-            }));
-            return null;
-        }, reason => {
-            this.dispatchEvent(new IndexedDBEvent("error", {
-                cancelable: false,
-                function: "delete",
-                arguments: {
-                    objectStoreName,
-                    callback: typeof query == "function" ? query : null,
-                    query: typeof query == "function" ? null : query
-                },
-                error: reason
-            }));
-            throw reason;
-        });
-    }
-    #deleteAll(objectStoreName) {
-        return new Promise(async (resolve, reject) => {
-            await this.#ready;
-            let request = this.#idb.transaction([objectStoreName], "readwrite").objectStore(objectStoreName).clear();
-            request.addEventListener("success", () => {
-                this.dispatchEvent(new IndexedDBEvent("success", {
-                    cancelable: false,
-                    function: "delete",
-                    arguments: {
-                        objectStoreName,
-                        callback: null,
-                        query: null
-                    },
-                    result: request.result
-                }));
-                resolve(request.result);
-            });
-            request.addEventListener("error", () => {
-                this.dispatchEvent(new IndexedDBEvent("error", {
-                    cancelable: false,
-                    function: "delete",
-                    arguments: {
-                        objectStoreName,
-                        callback: null,
-                        query: null
-                    },
-                    error: request.error
-                }));
-                reject(request.error);
-            });
-        });
-    }
-    #cursor(objectStoreName, mode, callback) {
-        return new Promise(async (resolve, reject) => {
-            await this.#ready;
-            let request = this.#idb.transaction([objectStoreName], mode).objectStore(objectStoreName).openCursor();
-            request.addEventListener("success", async () => {
-                let cursor = request.result;
-                if (cursor) {
-                    await callback(cursor);
-                    cursor.continue();
-                }
-                else {
-                    resolve();
-                }
-            });
-            request.addEventListener("error", () => {
-                reject(request.error);
-            });
-        });
-    }
-    #record_matches_query(record, query) {
-        if (query) {
-            let property;
-            for (property in query) {
-                if (typeof query[property] != typeof record[property] &&
-                    typeof query[property] == "object" &&
-                    query[property]) {
-                    if (query[property] instanceof RegExp &&
-                        !query[property].test(record[property])) {
-                        return false;
-                    }
-                    else if (query[property] instanceof Array &&
-                        query[property].length == 2 &&
-                        record[property] < query[property][0] ||
-                        record[property] > query[property][1]) {
-                        return false;
-                    }
-                }
-                else if (record[property] != query[property]) {
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
-    add(objectStoreName, record) {
-        return new Promise((resolve, reject) => {
-            this.#queue.push(() => this.#add(objectStoreName, record).then(resolve, reject));
-            this.#dequeue();
-        });
-    }
-    put(objectStoreName, record) {
-        return new Promise((resolve, reject) => {
-            this.#queue.push(() => this.#put(objectStoreName, record).then(resolve, reject));
-            this.#dequeue();
-        });
-    }
-    get(objectStoreName, query = null) {
-        return new Promise((resolve, reject) => {
-            if (query) {
-                this.#queue.push(() => this.#get(objectStoreName, query).then(resolve, reject));
-            }
-            else {
-                this.#queue.push(() => this.#getAll(objectStoreName).then(resolve, reject));
-            }
-            this.#dequeue();
-        });
-    }
-    delete(objectStoreName, query = null) {
-        return new Promise((resolve, reject) => {
-            if (query) {
-                this.#queue.push(() => this.#delete(objectStoreName, query).then(resolve, reject));
-            }
-            else {
-                this.#queue.push(() => this.#deleteAll(objectStoreName).then(resolve, reject));
-            }
-            this.#dequeue();
-        });
-    }
-    count(objectStoreName, query = null) {
-        return new Promise((resolve, reject) => {
-            if (query) {
-                this.#queue.push(() => this.#count(objectStoreName, query).then(resolve, reject));
-            }
-            else {
-                this.#queue.push(() => this.#countAll(objectStoreName).then(resolve, reject));
-            }
-            this.#dequeue();
-        });
-    }
-    index(objectStoreName, index, mode = "readonly") {
-        return new IndexedDBIndex(this.#idb.transaction([objectStoreName], mode).objectStore(objectStoreName).index(index));
-    }
-    #staticEvents = new Map();
-    get onsuccess() {
-        return this.#staticEvents.get("success") || null;
-    }
-    set onsuccess(value) {
-        if (this.#staticEvents.has("success")) {
-            this.removeEventListener("success", this.#staticEvents.get("success"));
-        }
-        if (typeof value == "function") {
-            this.#staticEvents.set("success", value);
-            this.addEventListener("success", value);
-        }
-        else {
-            this.#staticEvents.delete("success");
-        }
-    }
-    get onerror() {
-        return this.#staticEvents.get("error") || null;
-    }
-    set onerror(value) {
-        if (this.#staticEvents.has("error")) {
-            this.removeEventListener("error", this.#staticEvents.get("error"));
-        }
-        if (typeof value == "function") {
-            this.#staticEvents.set("error", value);
-            this.addEventListener("error", value);
-        }
-        else {
-            this.#staticEvents.delete("error");
-        }
-    }
-    get onblocked() {
-        return this.#staticEvents.get("blocked") || null;
-    }
-    set onblocked(value) {
-        if (this.#staticEvents.has("blocked")) {
-            this.removeEventListener("blocked", this.#staticEvents.get("blocked"));
-        }
-        if (typeof value == "function") {
-            this.#staticEvents.set("blocked", value);
-            this.addEventListener("blocked", value);
-        }
-        else {
-            this.#staticEvents.delete("blocked");
-        }
-    }
-    get onstatechange() {
-        return this.#staticEvents.get("statechange") || null;
-    }
-    set onstatechange(value) {
-        if (this.#staticEvents.has("statechange")) {
-            this.removeEventListener("statechange", this.#staticEvents.get("statechange"));
-        }
-        if (typeof value == "function") {
-            this.#staticEvents.set("statechange", value);
-            this.addEventListener("statechange", value);
-        }
-        else {
-            this.#staticEvents.delete("statechange");
-        }
-    }
-}
-/// <reference no-default-lib="true" />
-/// <reference path="index.ts" />
-class IndexedDBIndex extends EventTarget {
-    [Symbol.toStringTag] = "IndexedDBIndex";
-    STATE_CLOSED = 0;
-    STATE_UPGRADING = 1;
-    STATE_IDLE = 2;
-    STATE_OPERATING = 4;
-    #index;
-    #state = this.STATE_CLOSED;
-    #queue = [];
-    async #ready() {
-        if (this.#state == this.STATE_CLOSED) {
-            this.#index = this.#index.objectStore.transaction.db.transaction([this.#index.objectStore.name], this.#index.objectStore.transaction.mode).objectStore(this.#index.objectStore.name).index(this.#index.name);
-            this.dispatchEvent(new IndexedDBEvent("statechange", {
-                cancelable: false,
-                function: "statechange",
-                arguments: null,
-                result: this.STATE_IDLE
-            }));
-            this.#state = this.STATE_IDLE;
-            // console.log("IndexedDBIndex: idle");
-        }
+    get objectStoreNames() {
+        return this.#objectStoreNames;
     }
     get state() {
         return this.#state;
     }
-    get name() {
-        return this.#index.name;
-    }
-    get objectStoreName() {
-        return this.#index.objectStore.name;
-    }
-    get keyPath() {
-        return this.#index.keyPath;
-    }
-    get multiEntry() {
-        return this.#index.multiEntry;
-    }
-    get unique() {
-        return this.#index.unique;
-    }
-    get mode() {
-        return this.#index.objectStore.transaction.mode;
-    }
-    constructor(index) {
-        super();
-        this.#index = index;
-        this.#index.objectStore.transaction.addEventListener("complete", () => {
-            if (this.#state == this.STATE_OPERATING) {
-                this.#index = this.#index.objectStore.transaction.db.transaction([this.#index.objectStore.name], this.#index.objectStore.transaction.mode).objectStore(this.#index.objectStore.name).index(this.#index.name);
+    #index;
+    #objectStore;
+    #openCursor;
+    #awaitEvent;
+    // async add<O extends Extract<keyof Init, string>>(args: { objectStoreName: O; key?: MPIDBKeyPathToType<Init[O]["KeyPath"], Init[O]["Records"]>; record: Init[O]["Records"]; }): Promise<MPIDBValidKey>;
+    // async add<O extends Extract<keyof Init, string>>(args: { objectStoreName: O; keys?: MPIDBKeyPathToType<Init[O]["KeyPath"], Init[O]["Records"]>[]; records: Init[O]["Records"][]; }): Promise<MPIDBValidKey[]>;
+    async add(args) {
+        let objectStore = this.#objectStore(args.objectStoreName, "readwrite");
+        if ("keys" in args && args.keys.length == args.records.length) {
+            let i = 0;
+            let l = args.records.length;
+            let keys = [];
+            for (i; i < l; i++) {
+                keys.push((await this.#awaitEvent(objectStore.add(args.records[i], args.keys[i]), "success", "error")).target.result);
             }
-            else {
-                this.dispatchEvent(new IndexedDBEvent("statechange", {
-                    cancelable: false,
-                    function: "statechange",
-                    arguments: null,
-                    result: this.STATE_CLOSED
-                }));
-                this.#state = this.STATE_CLOSED;
-                // console.log("IndexedDBIndex: closed");
+            return keys;
+        }
+        else if ("records" in args) {
+            let i = 0;
+            let l = args.records.length;
+            let keys = [];
+            for (i; i < l; i++) {
+                keys.push((await this.#awaitEvent(objectStore.add(args.records[i]), "success", "error")).target.result);
             }
-        });
-        this.#index.objectStore.transaction.addEventListener("abort", () => {
-            this.dispatchEvent(new IndexedDBEvent("statechange", {
-                cancelable: false,
-                function: "statechange",
-                arguments: null,
-                result: this.STATE_CLOSED
-            }));
-            this.#state = this.STATE_CLOSED;
-            // console.log("IndexedDBIndex: closed");
-        });
-        this.dispatchEvent(new IndexedDBEvent("statechange", {
-            cancelable: false,
-            function: "statechange",
-            arguments: null,
-            result: this.STATE_IDLE
-        }));
-        this.#state = this.STATE_IDLE;
-        // console.log("IndexedDBIndex: idle");
-    }
-    async #dequeue() {
-        await this.#ready();
-        if (this.#state == this.STATE_IDLE && this.#queue.length > 0) {
-            this.dispatchEvent(new IndexedDBEvent("statechange", {
-                cancelable: false,
-                function: "statechange",
-                arguments: null,
-                result: this.STATE_OPERATING
-            }));
-            this.#state = this.STATE_OPERATING;
-            // console.log("IndexedDBIndex: operating");
-            let task;
-            while (this.#state == this.STATE_OPERATING && (task = this.#queue.shift())) {
-                try {
-                    await task();
-                }
-                catch (error) {
-                    console.error(error);
-                }
-            }
-            if (this.#state == this.STATE_OPERATING) {
-                this.dispatchEvent(new IndexedDBEvent("statechange", {
-                    cancelable: false,
-                    function: "statechange",
-                    arguments: null,
-                    result: this.STATE_IDLE
-                }));
-                this.#state = this.STATE_IDLE;
-                // console.log("IndexedDBIndex: idle");
-            }
+            return keys;
+        }
+        else if ("key" in args) {
+            return (await this.#awaitEvent(objectStore.add(args.record, args.key), "success", "error")).target.result;
+        }
+        else {
+            return (await this.#awaitEvent(objectStore.add(args.record), "success", "error")).target.result;
         }
     }
-    #get(query) {
-        let results = [];
-        return this.#cursor(typeof query == "function" ? async (cursor) => {
-            if (await query(cursor.value)) {
-                results.push(cursor.value);
-            }
-        } : cursor => {
-            if (this.#record_matches_query(cursor.value, query)) {
-                results.push(cursor.value);
-            }
-        }).then(() => {
-            this.dispatchEvent(new IndexedDBEvent("success", {
-                cancelable: false,
-                function: "get",
-                arguments: {
-                    objectStoreName: this.objectStoreName,
-                    callback: typeof query == "function" ? query : null,
-                    query: typeof query == "function" ? null : query
-                },
-                result: results
-            }));
+    async count(args) {
+        if (("ranges" in args && args.ranges.length > 0) ||
+            ("cursor" in args && typeof args.cursor == "function")) {
+            let results = 0;
+            await this.#openCursor(args, "readonly", "cursor" in args && typeof args.cursor == "function"
+                ? async (cursor) => await args.cursor(cursor.value) && void results++
+                : () => void results++);
             return results;
-        }, reason => {
-            this.dispatchEvent(new IndexedDBEvent("error", {
-                cancelable: false,
-                function: "get",
-                arguments: {
-                    objectStoreName: this.objectStoreName,
-                    callback: typeof query == "function" ? query : null,
-                    query: typeof query == "function" ? null : query
-                },
-                error: reason
-            }));
-            throw reason;
-        });
+        }
+        else {
+            return (await this.#awaitEvent(("indexName" in args && typeof args.indexName == "string"
+                ? this.#index(args.objectStoreName, args.indexName, "readonly")
+                : this.#objectStore(args.objectStoreName, "readonly")).count("key" in args ? args.key : null), "success", "error")).target.result;
+        }
     }
-    #getAll() {
-        return new Promise(async (resolve, reject) => {
-            await this.#ready();
-            let request = this.#index.getAll();
-            request.addEventListener("success", () => {
-                this.dispatchEvent(new IndexedDBEvent("success", {
-                    cancelable: false,
-                    function: "get",
-                    arguments: {
-                        objectStoreName: this.objectStoreName,
-                        callback: null,
-                        query: null
-                    },
-                    result: request.result
-                }));
-                resolve(request.result);
-            });
-            request.addEventListener("error", () => {
-                this.dispatchEvent(new IndexedDBEvent("error", {
-                    cancelable: false,
-                    function: "get",
-                    arguments: {
-                        objectStoreName: this.objectStoreName,
-                        callback: null,
-                        query: null
-                    },
-                    error: request.error
-                }));
-                reject(request.error);
-            });
-        });
+    async delete(args) {
+        if (("ranges" in args && args.ranges.length > 0) ||
+            ("cursor" in args && typeof args.cursor == "function") ||
+            ("indexName" in args && typeof args.indexName == "string")) {
+            await this.#openCursor(args, "readwrite", "cursor" in args && typeof args.cursor == "function"
+                ? async (cursor) => await args.cursor(cursor.value) && await this.#awaitEvent(cursor.delete(), "success", "error")
+                : async (cursor) => void await this.#awaitEvent(cursor.delete(), "success", "error"));
+        }
+        else {
+            let objectStore = this.#objectStore(args.objectStoreName, "readwrite");
+            let request;
+            if ("key" in args) {
+                request = objectStore.delete(args.key);
+            }
+            else {
+                request = objectStore.clear();
+            }
+            await this.#awaitEvent(request, "success", "error");
+        }
+        return null;
     }
-    #count(query) {
-        let results = 0;
-        return this.#cursor(typeof query == "function" ? async (cursor) => {
-            if (await query(cursor.value)) {
-                results++;
-            }
-        } : cursor => {
-            if (this.#record_matches_query(cursor.value, query)) {
-                results++;
-            }
-        }).then(() => {
-            this.dispatchEvent(new IndexedDBEvent("success", {
-                cancelable: false,
-                function: "count",
-                arguments: {
-                    objectStoreName: this.objectStoreName,
-                    callback: typeof query == "function" ? query : null,
-                    query: typeof query == "function" ? null : query
-                },
-                result: results
-            }));
+    async get(args) {
+        if (("ranges" in args && args.ranges.length > 0) ||
+            ("cursor" in args && typeof args.cursor == "function")) {
+            let results = [];
+            await this.#openCursor(args, "readonly", "cursor" in args && typeof args.cursor == "function"
+                ? async (cursor) => await args.cursor(cursor.value) && results.push(cursor.value)
+                : cursor => void results.push(cursor.value));
             return results;
-        }, reason => {
-            this.dispatchEvent(new IndexedDBEvent("error", {
-                cancelable: false,
-                function: "count",
-                arguments: {
-                    objectStoreName: this.objectStoreName,
-                    callback: typeof query == "function" ? query : null,
-                    query: typeof query == "function" ? null : query
-                },
-                error: reason
-            }));
-            throw reason;
-        });
+        }
+        else {
+            return (await this.#awaitEvent(("indexName" in args && typeof args.indexName == "string"
+                ? this.#index(args.objectStoreName, args.indexName, "readonly")
+                : this.#objectStore(args.objectStoreName, "readonly")).getAll("key" in args ? args.key : null, "limit" in args ? args.limit : 0), "success", "error")).target.result;
+        }
     }
-    #countAll() {
-        return new Promise(async (resolve, reject) => {
-            await this.#ready();
-            let request = this.#index.count();
-            request.addEventListener("success", () => {
-                this.dispatchEvent(new IndexedDBEvent("success", {
-                    cancelable: false,
-                    function: "count",
-                    arguments: {
-                        objectStoreName: this.objectStoreName,
-                        callback: null,
-                        query: null
-                    },
-                    result: request.result
-                }));
-                resolve(request.result);
-            });
-            request.addEventListener("error", () => {
-                this.dispatchEvent(new IndexedDBEvent("error", {
-                    cancelable: false,
-                    function: "count",
-                    arguments: {
-                        objectStoreName: this.objectStoreName,
-                        callback: null,
-                        query: null
-                    },
-                    error: request.error
-                }));
-                reject(request.error);
-            });
-        });
+    async getKey(args) {
+        if (("ranges" in args && args.ranges.length > 0) ||
+            ("cursor" in args && typeof args.cursor == "function")) {
+            let results = [];
+            await this.#openCursor(args, "readonly", "cursor" in args && typeof args.cursor == "function"
+                ? async (cursor) => await args.cursor(cursor.value) && results.push(cursor.key)
+                : cursor => void results.push(cursor.key));
+            return results;
+        }
+        else {
+            return (await this.#awaitEvent(("indexName" in args && typeof args.indexName == "string"
+                ? this.#index(args.objectStoreName, args.indexName, "readonly")
+                : this.#objectStore(args.objectStoreName, "readonly")).getAllKeys("key" in args ? args.key : null, "limit" in args ? args.limit : 0), "success", "error")).target.result;
+        }
     }
-    #delete(query) {
-        return this.#cursor(typeof query == "function" ? async (cursor) => {
-            if (await query(cursor.value)) {
-                await new Promise((resolve, reject) => {
-                    let request = cursor.delete();
-                    request.addEventListener("success", () => {
-                        resolve();
-                    });
-                    request.addEventListener("error", () => reject(request.error));
-                });
+    index(objectStoreName, index) {
+        return new MPIDBIndex(this.#index(objectStoreName, index, "readonly"));
+    }
+    objectStore(objectStoreName) {
+        return new MPIDBObjectStore(this.#objectStore(objectStoreName, "readonly"));
+    }
+    async openCursor(args, mode, callback) {
+        await this.#openCursor(args, mode, "cursor" in args && typeof args.cursor == "function"
+            ? async (cursor) => await args.cursor(cursor.value) && await callback(cursor)
+            : async (cursor) => void await callback(cursor));
+        return null;
+    }
+    // async put<O extends Extract<keyof Init, string>>(args: { objectStoreName: O; key?: MPIDBKeyPathToType<Init[O]["KeyPath"], Init[O]["Records"]>; record: Init[O]["Records"]; }): Promise<MPIDBValidKey>;
+    // async put<O extends Extract<keyof Init, string>>(args: { objectStoreName: O; keys?: MPIDBKeyPathToType<Init[O]["KeyPath"], Init[O]["Records"]>[]; records: Init[O]["Records"][]; }): Promise<MPIDBValidKey[]>;
+    // async put<O extends Extract<keyof Init, string>, I extends Extract<keyof Init[O]["Indices"], string>>(args: { objectStoreName: O; indexName: I; key?: MPIDBKeyPathToType<Init[O]["Indices"][I], Init[O]["Records"]>; record: Init[O]["Records"]; }): Promise<MPIDBValidKey>;
+    // async put<O extends Extract<keyof Init, string>, I extends Extract<keyof Init[O]["Indices"], string>>(args: { objectStoreName: O; indexName: I; keys?: MPIDBKeyPathToType<Init[O]["Indices"][I], Init[O]["Records"]>[]; records: Init[O]["Records"][]; }): Promise<MPIDBValidKey[]>;
+    async put(args) {
+        let objectStore = this.#objectStore(args.objectStoreName, "readwrite");
+        console.warn("Support for updating by indexName is missing");
+        if ("keys" in args && args.keys.length == args.records.length) {
+            let i = 0;
+            let l = args.records.length;
+            let keys = [];
+            for (i; i < l; i++) {
+                keys.push((await this.#awaitEvent(objectStore.put(args.records[i], args.keys[i]), "success", "error")).target.result);
             }
-        } : async (cursor) => {
-            if (this.#record_matches_query(cursor.value, query)) {
-                await new Promise((resolve, reject) => {
-                    let request = cursor.delete();
-                    request.addEventListener("success", () => {
-                        resolve();
-                    });
-                    request.addEventListener("error", () => reject(request.error));
-                });
+            return keys;
+        }
+        else if ("records" in args) {
+            let i = 0;
+            let l = args.records.length;
+            let keys = [];
+            for (i; i < l; i++) {
+                keys.push((await this.#awaitEvent(objectStore.put(args.records[i]), "success", "error")).target.result);
             }
-        }).then(() => {
-            this.dispatchEvent(new IndexedDBEvent("success", {
-                cancelable: false,
-                function: "delete",
-                arguments: {
-                    objectStoreName: this.objectStoreName,
-                    callback: typeof query == "function" ? query : null,
-                    query: typeof query == "function" ? null : query
-                },
-                result: null
-            }));
-            return null;
-        }, reason => {
-            this.dispatchEvent(new IndexedDBEvent("error", {
-                cancelable: false,
-                function: "delete",
-                arguments: {
-                    objectStoreName: this.objectStoreName,
-                    callback: typeof query == "function" ? query : null,
-                    query: typeof query == "function" ? null : query
-                },
-                error: reason
-            }));
-            throw reason;
-        });
+            return keys;
+        }
+        else if ("key" in args) {
+            return (await this.#awaitEvent(objectStore.put(args.record, args.key), "success", "error")).target.result;
+        }
+        else {
+            return (await this.#awaitEvent(objectStore.put(args.record), "success", "error")).target.result;
+        }
     }
-    #deleteAll() {
-        return this.#cursor(async (cursor) => {
-            await new Promise((resolve, reject) => {
-                let request = cursor.delete();
-                request.addEventListener("success", () => {
-                    resolve();
-                });
-                request.addEventListener("error", () => reject(request.error));
-            });
-        }).then(() => {
-            this.dispatchEvent(new IndexedDBEvent("success", {
-                cancelable: false,
-                function: "delete",
-                arguments: {
-                    objectStoreName: this.objectStoreName,
-                    callback: null,
-                    query: null
-                },
-                result: null
-            }));
-            return null;
-        }, reason => {
-            this.dispatchEvent(new IndexedDBEvent("error", {
-                cancelable: false,
-                function: "delete",
-                arguments: {
-                    objectStoreName: this.objectStoreName,
-                    callback: null,
-                    query: null
-                },
-                error: reason
-            }));
-            throw reason;
-        });
-    }
-    #cursor(callback) {
-        return new Promise(async (resolve, reject) => {
-            await this.#ready();
-            let request = this.#index.openCursor();
-            request.addEventListener("success", () => {
-                let cursor = request.result;
-                if (cursor) {
-                    callback(cursor);
-                    cursor.continue();
+}
+class MPIDBIndex {
+    constructor(index) {
+        this[Symbol.toStringTag] = "MPIDBIndex";
+        this.#index = (mode) => {
+            let objectStore = this.#idb.transaction(this.#objectStoreName, mode).objectStore(this.#objectStoreName);
+            this.#objectStoreIndexNames = objectStore.indexNames;
+            return objectStore.index(this.#name);
+        };
+        this.#openCursor = (args, mode, callback) => {
+            return new Promise(async (resolve, reject) => {
+                let request = (this.#index(mode)).openCursor("key" in args ? args.key : null, "direction" in args && typeof args.direction == "string" ? args.direction : "next");
+                if ("limit" in args && typeof args.limit == "number" && args.limit > 0) {
+                    let counts = 0;
+                    let limit = args.limit;
+                    request.addEventListener("success", "ranges" in args && args.ranges.length > 0
+                        ? async () => {
+                            let cursor = request.result;
+                            counts++;
+                            if (cursor) {
+                                if (counts < limit &&
+                                    args.ranges.filter(range => range.includes(cursor.value)).length > 0) {
+                                    await callback(cursor);
+                                }
+                                cursor.continue();
+                            }
+                            else {
+                                resolve();
+                            }
+                        }
+                        : async () => {
+                            let cursor = request.result;
+                            if (cursor) {
+                                if (counts < limit) {
+                                    await callback(cursor);
+                                }
+                                cursor.continue();
+                            }
+                            else {
+                                resolve();
+                            }
+                        });
                 }
                 else {
-                    resolve();
+                    request.addEventListener("success", "ranges" in args && args.ranges.length > 0
+                        ? async () => {
+                            let cursor = request.result;
+                            if (cursor) {
+                                if (args.ranges.filter(range => range.includes(cursor.value)).length > 0) {
+                                    await callback(cursor);
+                                }
+                                cursor.continue();
+                            }
+                            else {
+                                resolve();
+                            }
+                        }
+                        : async () => {
+                            let cursor = request.result;
+                            if (cursor) {
+                                await callback(cursor);
+                                cursor.continue();
+                            }
+                            else {
+                                resolve();
+                            }
+                        });
                 }
+                request.addEventListener("error", () => {
+                    reject(request.error);
+                });
             });
-            request.addEventListener("error", () => {
-                reject(request.error);
+        };
+        this.#awaitEvent = (target, resolveType, rejectType) => {
+            return new Promise(function (resolve, reject) {
+                function resolveCallback(event) {
+                    resolve(event);
+                    target.removeEventListener(resolveType, resolveCallback);
+                    target.removeEventListener(rejectType, rejectCallback);
+                }
+                function rejectCallback(event) {
+                    reject(event);
+                    target.removeEventListener(resolveType, resolveCallback);
+                    target.removeEventListener(rejectType, rejectCallback);
+                }
+                target.addEventListener(resolveType, resolveCallback, { once: true });
+                target.addEventListener(rejectType, rejectCallback, { once: true });
             });
-        });
+        };
+        this.#state = "open";
+        this.#idb = index.objectStore.transaction.db;
+        this.#name = index.name;
+        this.#keyPath = typeof index.keyPath == "string" ? index.keyPath : index.keyPath.join(".");
+        this.#multiEntry = index.multiEntry;
+        this.#unique = index.unique;
+        this.#objectStoreName = index.objectStore.name;
+        this.#objectStoreAutoIncrement = index.objectStore.autoIncrement;
+        this.#objectStoreKeyPath = index.objectStore.keyPath;
+        this.#objectStoreIndexNames = index.objectStore.indexNames;
+        this.#databaseName = this.#idb.name;
+        this.#databaseVersion = this.#idb.version;
+        this.#databaseObjectStoreNames = this.#idb.objectStoreNames;
+        this.#idb.addEventListener("abort", () => this.#state = "aborted");
+        this.#idb.addEventListener("close", () => this.#state = "closed");
     }
-    #record_matches_query(record, query) {
-        if (query) {
-            let property;
-            for (property in query) {
-                if (typeof query[property] != typeof record[property] &&
-                    typeof query[property] == "object" &&
-                    query[property]) {
-                    if (query[property] instanceof RegExp &&
-                        !query[property].test(record[property])) {
-                        return false;
-                    }
-                    else if (query[property] instanceof Array &&
-                        query[property].length == 2 &&
-                        record[property] < query[property][0] ||
-                        record[property] > query[property][1]) {
-                        return false;
-                    }
-                }
-                else if (record[property] != query[property]) {
+    #idb;
+    #name;
+    #keyPath;
+    #multiEntry;
+    #unique;
+    #objectStoreName;
+    #objectStoreAutoIncrement;
+    #objectStoreKeyPath;
+    #objectStoreIndexNames;
+    #databaseName;
+    #databaseVersion;
+    #databaseObjectStoreNames;
+    #state;
+    get name() {
+        return this.#name;
+    }
+    get keyPath() {
+        return this.#keyPath;
+    }
+    get multiEntry() {
+        return this.#multiEntry;
+    }
+    get unique() {
+        return this.#unique;
+    }
+    get objectStoreName() {
+        return this.#objectStoreName;
+    }
+    get objectStoreAutoIncrement() {
+        return this.#objectStoreAutoIncrement;
+    }
+    get objectStoreKeyPath() {
+        return this.#objectStoreKeyPath;
+    }
+    get objectStoreIndexNames() {
+        return this.#objectStoreIndexNames;
+    }
+    get databaseName() {
+        return this.#databaseName;
+    }
+    get databaseVersion() {
+        return this.#databaseVersion;
+    }
+    get databaseObjectStoreNames() {
+        return this.#databaseObjectStoreNames;
+    }
+    get state() {
+        return this.#state;
+    }
+    #index;
+    #openCursor;
+    #awaitEvent;
+    async count(args) {
+        if (("ranges" in args && args.ranges.length > 0) ||
+            ("cursor" in args && typeof args.cursor == "function")) {
+            let results = 0;
+            await this.#openCursor(args, "readonly", "cursor" in args && typeof args.cursor == "function"
+                ? async (cursor) => await args.cursor(cursor.value) && void results++
+                : () => void results++);
+            return results;
+        }
+        else {
+            return (await this.#awaitEvent(this.#index("readonly").count("key" in args ? args.key : null), "success", "error")).target.result;
+        }
+    }
+    async delete(args) {
+        await this.#openCursor(args, "readwrite", "cursor" in args && typeof args.cursor == "function"
+            ? async (cursor) => await args.cursor(cursor.value) && await this.#awaitEvent(cursor.delete(), "success", "error")
+            : async (cursor) => void await this.#awaitEvent(cursor.delete(), "success", "error"));
+        return null;
+    }
+    async get(args) {
+        if (("ranges" in args && args.ranges.length > 0) ||
+            ("cursor" in args && typeof args.cursor == "function")) {
+            let results = [];
+            await this.#openCursor(args, "readonly", "cursor" in args && typeof args.cursor == "function"
+                ? async (cursor) => await args.cursor(cursor.value) && results.push(cursor.value)
+                : cursor => void results.push(cursor.value));
+            return results;
+        }
+        else {
+            return (await this.#awaitEvent(this.#index("readonly").getAll("key" in args ? args.key : null, "limit" in args ? args.limit : 0), "success", "error")).target.result;
+        }
+    }
+    async getKey(args) {
+        if (("ranges" in args && args.ranges.length > 0) ||
+            ("cursor" in args && typeof args.cursor == "function")) {
+            let results = [];
+            await this.#openCursor(args, "readonly", "cursor" in args && typeof args.cursor == "function"
+                ? async (cursor) => await args.cursor(cursor.value) && results.push(cursor.key)
+                : cursor => void results.push(cursor.key));
+            return results;
+        }
+        else {
+            return (await this.#awaitEvent(this.#index("readonly").getAllKeys("key" in args ? args.key : null, "limit" in args ? args.limit : 0), "success", "error")).target.result;
+        }
+    }
+    async openCursor(args, mode, callback) {
+        await this.#openCursor(args, mode, "cursor" in args && typeof args.cursor == "function"
+            ? async (cursor) => await args.cursor(cursor.value) && await callback(cursor)
+            : async (cursor) => void await callback(cursor));
+        return null;
+    }
+}
+class MPIDBKeyRanges {
+    constructor() {
+        this.#ranges = new Map();
+    }
+    #ranges;
+    // lowerBound(keyPath: string, lower: MPIDBValidRecord, lowerOpen?: boolean): this;
+    lowerBound(keyPath, lower, lowerOpen = false) {
+        this.#ranges.set(keyPath, IDBKeyRange.lowerBound(lower, lowerOpen));
+        return this;
+    }
+    // upperBound(keyPath: string, upper: MPIDBValidRecord, upperOpen?: boolean): this;
+    upperBound(keyPath, upper, upperOpen = false) {
+        this.#ranges.set(keyPath, IDBKeyRange.upperBound(upper, upperOpen));
+        return this;
+    }
+    // bound(keyPath: string, lower: MPIDBValidRecord, upper: MPIDBValidRecord, lowerOpen?: boolean, upperOpen?: boolean): this;
+    bound(keyPath, lower, upper, lowerOpen = false, upperOpen = false) {
+        this.#ranges.set(keyPath, IDBKeyRange.bound(lower, upper, lowerOpen, upperOpen));
+        return this;
+    }
+    // only(keyPath: string, value: MPIDBValidRecord, multiple?: false): this;
+    // only(keyPath: string, values: MPIDBValidRecord[], multiple: true): this;
+    only(keyPath, values, multiple = false) {
+        this.#ranges.set(keyPath, {
+            only: (multiple ? values : [values]),
+            includes(key) {
+                return this.only.indexOf(key) > -1;
+            }
+        });
+        return this;
+    }
+    // custom(keyPath: string, callbackfn: (key: MPIDBValidRecord, keyPath: string) => boolean): this;
+    custom(keyPath, callbackfn) {
+        this.#ranges.set(keyPath, { includes: callbackfn });
+        return this;
+    }
+    get rangesCount() {
+        return this.#ranges.size;
+    }
+    ranges() {
+        return this.#ranges.values();
+    }
+    // forEach(callbackfn: (range: MPIDBKeyRange, keyPath: string, ranges: MPIDBKeyRanges<R>) => void, thisArg?: any): void;
+    forEach(callbackfn, thisArg = this) {
+        this.#ranges.forEach((range, keyPath) => callbackfn.call(thisArg, range, keyPath, this));
+    }
+    *[Symbol.iterator]() {
+        return this.#ranges.values();
+    }
+    keyPathToValue(record, keyPath, baseKeyPath = keyPath) {
+        let splitted_keyPath = keyPath.split(".");
+        let property = splitted_keyPath.shift();
+        if (property in record == false) {
+            throw new DOMException(`KeyPath does not match MPIDBValidRecord's structure: ${keyPath} of ${baseKeyPath} was not found in MPIDBValidRecord`, "KeyPath does not match MPIDBValidRecord's structure");
+        }
+        if (splitted_keyPath.length > 1) {
+            // @ts-expect-error
+            return this.keyPathToValue(record[property], splitted_keyPath.join("."), baseKeyPath);
+        }
+        return record[property];
+    }
+    includes(record) {
+        for (let [keyPath, range] of this.#ranges) {
+            try {
+                if (!range.includes(this.keyPathToValue(record, keyPath), keyPath)) {
                     return false;
                 }
+            }
+            catch (e) {
+                if (e instanceof DOMException && e.name == "KeyPath does not match MPIDBValidRecord's structure") {
+                    return false;
+                }
+                throw e;
             }
         }
         return true;
     }
-    get(query = null) {
-        return new Promise((resolve, reject) => {
-            if (query) {
-                this.#queue.push(() => this.#get(query).then(resolve, reject));
-            }
-            else {
-                this.#queue.push(() => this.#getAll().then(resolve, reject));
-            }
-            this.#dequeue();
-        });
+}
+class MPIDBObjectStore {
+    constructor(objectStore) {
+        this[Symbol.toStringTag] = "MPIDBObjectStore";
+        this.#index = (indexName, mode) => {
+            return this.#objectStore(mode).index(indexName);
+        };
+        this.#objectStore = (mode) => {
+            let objectStore = this.#idb.transaction(this.#name, mode).objectStore(this.#name);
+            this.#indexNames = objectStore.indexNames;
+            return objectStore;
+        };
+        this.#openCursor = (args, mode, callback) => {
+            return new Promise(async (resolve, reject) => {
+                let request = ("indexName" in args && typeof args.indexName == "string"
+                    ? this.#index(args.indexName, mode)
+                    : this.#objectStore(mode)).openCursor("key" in args ? args.key : null, "direction" in args && typeof args.direction == "string" ? args.direction : "next");
+                if ("limit" in args && typeof args.limit == "number" && args.limit > 0) {
+                    let counts = 0;
+                    let limit = args.limit;
+                    request.addEventListener("success", "ranges" in args && args.ranges.length > 0
+                        ? async () => {
+                            let cursor = request.result;
+                            counts++;
+                            if (cursor) {
+                                if (counts < limit &&
+                                    args.ranges.filter(range => range.includes(cursor.value)).length > 0) {
+                                    await callback(cursor);
+                                }
+                                cursor.continue();
+                            }
+                            else {
+                                resolve();
+                            }
+                        }
+                        : async () => {
+                            let cursor = request.result;
+                            if (cursor) {
+                                if (counts < limit) {
+                                    await callback(cursor);
+                                }
+                                cursor.continue();
+                            }
+                            else {
+                                resolve();
+                            }
+                        });
+                }
+                else {
+                    request.addEventListener("success", "ranges" in args && args.ranges.length > 0
+                        ? async () => {
+                            let cursor = request.result;
+                            if (cursor) {
+                                if (args.ranges.filter(range => range.includes(cursor.value)).length > 0) {
+                                    await callback(cursor);
+                                }
+                                cursor.continue();
+                            }
+                            else {
+                                resolve();
+                            }
+                        }
+                        : async () => {
+                            let cursor = request.result;
+                            if (cursor) {
+                                await callback(cursor);
+                                cursor.continue();
+                            }
+                            else {
+                                resolve();
+                            }
+                        });
+                }
+                request.addEventListener("error", () => {
+                    reject(request.error);
+                });
+            });
+        };
+        this.#awaitEvent = (target, resolveType, rejectType) => {
+            return new Promise(function (resolve, reject) {
+                function resolveCallback(event) {
+                    resolve(event);
+                    target.removeEventListener(resolveType, resolveCallback);
+                    target.removeEventListener(rejectType, rejectCallback);
+                }
+                function rejectCallback(event) {
+                    reject(event);
+                    target.removeEventListener(resolveType, resolveCallback);
+                    target.removeEventListener(rejectType, rejectCallback);
+                }
+                target.addEventListener(resolveType, resolveCallback, { once: true });
+                target.addEventListener(rejectType, rejectCallback, { once: true });
+            });
+        };
+        this.#state = "open";
+        this.#idb = objectStore.transaction.db;
+        this.#name = objectStore.name;
+        this.#keyPath = objectStore.keyPath;
+        this.#autoIncrement = objectStore.autoIncrement;
+        this.#indexNames = objectStore.indexNames;
+        this.#databaseName = this.#idb.name;
+        this.#databaseVersion = this.#idb.version;
+        this.#databaseObjectStoreNames = this.#idb.objectStoreNames;
+        this.#idb.addEventListener("abort", () => this.#state = "aborted");
+        this.#idb.addEventListener("close", () => this.#state = "closed");
     }
-    count(query = null) {
-        return new Promise((resolve, reject) => {
-            if (query) {
-                this.#queue.push(() => this.#count(query).then(resolve, reject));
-            }
-            else {
-                this.#queue.push(() => this.#countAll().then(resolve, reject));
-            }
-            this.#dequeue();
-        });
+    #idb;
+    #name;
+    #autoIncrement;
+    #keyPath;
+    #indexNames;
+    #databaseName;
+    #databaseVersion;
+    #databaseObjectStoreNames;
+    #state;
+    get name() {
+        return this.#name;
     }
-    delete(query = null) {
-        if (this.#index.objectStore.transaction.mode != "readwrite") {
-            return Promise.reject(new DOMException(`Failed to execute 'delete' on '${this.constructor.name}': The record may not be deleted inside a read-only transaction.`, "ReadOnlyError"));
+    get autoIncrement() {
+        return this.#autoIncrement;
+    }
+    get keyPath() {
+        return this.#keyPath;
+    }
+    get indexNames() {
+        return this.#indexNames;
+    }
+    get databaseName() {
+        return this.#databaseName;
+    }
+    get databaseVersion() {
+        return this.#databaseVersion;
+    }
+    get databaseObjectStoreNames() {
+        return this.#databaseObjectStoreNames;
+    }
+    get state() {
+        return this.#state;
+    }
+    #index;
+    #objectStore;
+    #openCursor;
+    #awaitEvent;
+    async add(args) {
+        let objectStore = this.#objectStore("readwrite");
+        if ("keys" in args && args.keys.length == args.records.length) {
+            let i = 0;
+            let l = args.records.length;
+            let keys = [];
+            for (i; i < l; i++) {
+                keys.push((await this.#awaitEvent(objectStore.add(args.records[i], args.keys[i]), "success", "error")).target.result);
+            }
+            return keys;
         }
-        return new Promise((resolve, reject) => {
-            if (query) {
-                this.#queue.push(() => this.#delete(query).then(resolve, reject));
+        else if ("records" in args) {
+            let i = 0;
+            let l = args.records.length;
+            let keys = [];
+            for (i; i < l; i++) {
+                keys.push((await this.#awaitEvent(objectStore.add(args.records[i]), "success", "error")).target.result);
             }
-            else {
-                this.#queue.push(() => this.#deleteAll().then(resolve, reject));
-            }
-            this.#dequeue();
-        });
-    }
-    #staticEvents = new Map();
-    get onsuccess() {
-        return this.#staticEvents.get("success") || null;
-    }
-    set onsuccess(value) {
-        if (this.#staticEvents.has("success")) {
-            this.removeEventListener("success", this.#staticEvents.get("success"));
+            return keys;
         }
-        if (typeof value == "function") {
-            this.#staticEvents.set("success", value);
-            this.addEventListener("success", value);
+        else if ("key" in args) {
+            return (await this.#awaitEvent(objectStore.add(args.record, args.key), "success", "error")).target.result;
         }
         else {
-            this.#staticEvents.delete("success");
+            return (await this.#awaitEvent(objectStore.add(args.record), "success", "error")).target.result;
         }
     }
-    get onerror() {
-        return this.#staticEvents.get("error") || null;
-    }
-    set onerror(value) {
-        if (this.#staticEvents.has("error")) {
-            this.removeEventListener("error", this.#staticEvents.get("error"));
-        }
-        if (typeof value == "function") {
-            this.#staticEvents.set("error", value);
-            this.addEventListener("error", value);
+    async count(args) {
+        if (("ranges" in args && args.ranges.length > 0) ||
+            ("cursor" in args && typeof args.cursor == "function")) {
+            let results = 0;
+            await this.#openCursor(args, "readonly", "cursor" in args && typeof args.cursor == "function"
+                ? async (cursor) => await args.cursor(cursor.value) && void results++
+                : () => void results++);
+            return results;
         }
         else {
-            this.#staticEvents.delete("error");
+            return (await this.#awaitEvent(("indexName" in args && typeof args.indexName == "string"
+                ? this.#index(args.indexName, "readonly")
+                : this.#objectStore("readonly")).count("key" in args ? args.key : null), "success", "error")).target.result;
+        }
+    }
+    async delete(args) {
+        if (("ranges" in args && args.ranges.length > 0) ||
+            ("cursor" in args && typeof args.cursor == "function") ||
+            ("indexName" in args && typeof args.indexName == "string")) {
+            await this.#openCursor(args, "readwrite", "cursor" in args && typeof args.cursor == "function"
+                ? async (cursor) => await args.cursor(cursor.value) && await this.#awaitEvent(cursor.delete(), "success", "error")
+                : async (cursor) => void await this.#awaitEvent(cursor.delete(), "success", "error"));
+        }
+        else {
+            let objectStore = this.#objectStore("readwrite");
+            let request;
+            if ("key" in args) {
+                request = objectStore.delete(args.key);
+            }
+            else {
+                request = objectStore.clear();
+            }
+            await this.#awaitEvent(request, "success", "error");
+        }
+        return null;
+    }
+    async get(args) {
+        if (("ranges" in args && args.ranges.length > 0) ||
+            ("cursor" in args && typeof args.cursor == "function")) {
+            let results = [];
+            await this.#openCursor(args, "readonly", "cursor" in args && typeof args.cursor == "function"
+                ? async (cursor) => await args.cursor(cursor.value) && results.push(cursor.value)
+                : cursor => void results.push(cursor.value));
+            return results;
+        }
+        else {
+            return (await this.#awaitEvent(("indexName" in args && typeof args.indexName == "string"
+                ? this.#index(args.indexName, "readonly")
+                : this.#objectStore("readonly")).getAll("key" in args ? args.key : null, "limit" in args ? args.limit : 0), "success", "error")).target.result;
+        }
+    }
+    async getKey(args) {
+        if (("ranges" in args && args.ranges.length > 0) ||
+            ("cursor" in args && typeof args.cursor == "function")) {
+            let results = [];
+            await this.#openCursor(args, "readonly", "cursor" in args && typeof args.cursor == "function"
+                ? async (cursor) => await args.cursor(cursor.value) && results.push(cursor.key)
+                : cursor => void results.push(cursor.key));
+            return results;
+        }
+        else {
+            return (await this.#awaitEvent(("indexName" in args && typeof args.indexName == "string"
+                ? this.#index(args.indexName, "readonly")
+                : this.#objectStore("readonly")).getAllKeys("key" in args ? args.key : null, "limit" in args ? args.limit : 0), "success", "error")).target.result;
+        }
+    }
+    index(index) {
+        return new MPIDBIndex(this.#index(index, "readonly"));
+    }
+    async openCursor(args, mode, callback) {
+        await this.#openCursor(args, mode, "cursor" in args && typeof args.cursor == "function"
+            ? async (cursor) => await args.cursor(cursor.value) && await callback(cursor)
+            : async (cursor) => void await callback(cursor));
+        return null;
+    }
+    async put(args) {
+        let objectStore = this.#objectStore("readwrite");
+        if ("keys" in args && args.keys.length == args.records.length) {
+            let i = 0;
+            let l = args.records.length;
+            let keys = [];
+            for (i; i < l; i++) {
+                keys.push((await this.#awaitEvent(objectStore.add(args.records[i], args.keys[i]), "success", "error")).target.result);
+            }
+            return keys;
+        }
+        else if ("records" in args) {
+            let i = 0;
+            let l = args.records.length;
+            let keys = [];
+            for (i; i < l; i++) {
+                keys.push((await this.#awaitEvent(objectStore.add(args.records[i]), "success", "error")).target.result);
+            }
+            return keys;
+        }
+        else if ("key" in args) {
+            return (await this.#awaitEvent(objectStore.add(args.record, args.key), "success", "error")).target.result;
+        }
+        else {
+            return (await this.#awaitEvent(objectStore.add(args.record), "success", "error")).target.result;
         }
     }
 }
-/// <reference no-default-lib="true" />
-/// <reference path="index.ts" />
-class IndexedDBEvent extends Event {
-    [Symbol.toStringTag] = "IndexedDBEvent";
-    function;
-    arguments;
-    result;
-    error;
+/// <reference path="helper.ts" />
+/// <reference path="mpidbopenpromise.ts" />
+/// <reference path="mpidb.ts" />
+/// <reference path="mpidbindex.ts" />
+/// <reference path="mpidbkeyranges.ts" />
+/// <reference path="mpidbobjectstore.ts" />
+class ServerEvent extends Event {
     constructor(type, eventInitDict) {
         super(type, eventInitDict);
-        this.function = eventInitDict.function || null;
-        this.arguments = eventInitDict.arguments || null;
-        this.result = eventInitDict.result || null;
-        this.error = eventInitDict.error || null;
+        this.#group = eventInitDict.group || null;
+        this.#data = eventInitDict.data || null;
     }
-}
-/// <reference no-default-lib="true" />
-/// <reference path="index.ts" />
-class ServerEvent extends Event {
-    [Symbol.toStringTag] = "ServerEvent";
     #group;
     get group() {
         return this.#group;
@@ -1520,11 +1458,6 @@ class ServerEvent extends Event {
     get data() {
         return this.#data;
     }
-    constructor(type, eventInitDict) {
-        super(type, eventInitDict);
-        this.#group = eventInitDict.group || null;
-        this.#data = eventInitDict.data || null;
-    }
     /** @deprecated */
     initServerEvent(type, bubbles, cancelable, group, data) {
         super.initEvent(type, bubbles, cancelable);
@@ -1532,64 +1465,108 @@ class ServerEvent extends Event {
         this.#data = data;
     }
 }
-/// <reference no-default-lib="true" />
-/// <reference path="index.ts" />
 class Server extends EventTarget {
-    [Symbol.toStringTag] = "Server";
-    static server = new Server();
-    #version;
-    #cacheName = "ServerCache-20211226";
-    #scope = registration.scope.replace(/\/$/, "");
-    #regex_safe_scope = this.#scope.escape(String.ESCAPE_REGEXP, "\\");
-    #online = navigator.onLine;
-    #idb = new IndexedDB("Server", 1, {
-        settings: {
-            name: "settings",
-            autoIncrement: false,
-            keyPath: "key",
-            indices: []
-        },
-        routes: {
-            name: "routes",
-            autoIncrement: true,
-            indices: [
-                { name: "by_priority", keyPath: "priority", multiEntry: false, unique: false },
-                { name: "by_string", keyPath: "string", multiEntry: false, unique: false },
-                { name: "by_key", keyPath: "key", multiEntry: false, unique: false },
-                { name: "by_function", keyPath: "function", multiEntry: false, unique: false }
-            ]
-        },
-        log: {
-            name: "log",
-            autoIncrement: true,
-            keyPath: "id",
-            indices: [
-                { name: "by_type", keyPath: "type", multiEntry: false, unique: false }
-            ]
-        },
-        assets: {
-            name: "assets",
-            keyPath: "id",
-            autoIncrement: false,
-            indices: []
-        }
-    });
-    get version() {
-        return this.#version;
-    }
-    get scope() {
-        return this.#scope;
-    }
-    get regex_safe_scope() {
-        return this.#regex_safe_scope;
-    }
-    get online() {
-        return this.#online;
-    }
-    ready;
-    #start;
     constructor() {
         super();
+        this.#cacheName = "ServerCache-20211226";
+        this.#scope = registration.scope.replace(/\/$/, "");
+        this.#regex_safe_scope = this.#scope.escape(String.ESCAPE_REGEXP, "\\");
+        this.#online = navigator.onLine;
+        this.#idb = MPIDB.open("Server", 1, {
+            settings: {
+                name: "settings",
+                autoIncrement: false,
+                keyPath: "key",
+                indices: {}
+            },
+            routes: {
+                name: "routes",
+                autoIncrement: true,
+                keyPath: null,
+                indices: {
+                    by_priority: { name: "by_priority", keyPath: "priority", multiEntry: false, unique: false },
+                    by_string: { name: "by_string", keyPath: "string", multiEntry: false, unique: false },
+                    by_key: { name: "by_key", keyPath: "key", multiEntry: false, unique: false },
+                    by_function: { name: "by_function", keyPath: "function", multiEntry: false, unique: false },
+                    by_storage: { name: "by_storage", keyPath: "storage", multiEntry: false, unique: false }
+                }
+            },
+            log: {
+                name: "log",
+                autoIncrement: true,
+                keyPath: "id",
+                indices: {
+                    by_type: { name: "by_type", keyPath: "type", multiEntry: false, unique: false }
+                }
+            },
+            assets: {
+                name: "assets",
+                keyPath: "id",
+                autoIncrement: false,
+                indices: {}
+            }
+        });
+        this.#loadedScripts = new Map([
+            [null, null]
+        ]);
+        this.#loadScript = async (id) => {
+            if (!this.#loadedScripts.has(id)) {
+                let assets = await this.#idb.get({
+                    objectStoreName: "assets",
+                    key: id
+                });
+                if (assets.length > 0) {
+                    let blob = assets[0].blob;
+                    if (/(text|application)\/javascript/.test(blob.type)) {
+                        let result = await eval.call(self, await blob.text());
+                        this.#loadedScripts.set(id, result);
+                    }
+                    else {
+                        throw new DOMException(`Failed to load script: ${id}\nScripts mime type is not supported.`, `UnsupportedMimeType`);
+                    }
+                }
+                else {
+                    throw new DOMException(`Failed to load script: ${id}\nScript not found.`, `FileNotFound`);
+                }
+            }
+            return this.#loadedScripts.get(id);
+        };
+        this.#settings = new Map();
+        this.#settingsListenerMap = new Map();
+        this.#log = async (type, message, stack) => {
+            await this.#idb.put({
+                objectStoreName: "log",
+                record: {
+                    timestamp: Date.now(),
+                    type,
+                    message,
+                    stack
+                }
+            });
+        };
+        this.#responseFunctions = new Map();
+        this.#ononline = null;
+        this.#onoffline = null;
+        this.#onconnected = null;
+        this.#ondisconnected = null;
+        this.#onbeforeinstall = null;
+        this.#oninstall = null;
+        this.#onafterinstall = null;
+        this.#onbeforeupdate = null;
+        this.#onupdate = null;
+        this.#onafterupdate = null;
+        this.#onbeforeactivate = null;
+        this.#onactivate = null;
+        this.#onafteractivate = null;
+        this.#onbeforefetch = null;
+        this.#onfetch = null;
+        this.#onafterfetch = null;
+        this.#onbeforestart = null;
+        this.#onstart = null;
+        this.#onafterstart = null;
+        this.#onbeforemessage = null;
+        this.#onmessage = null;
+        this.#onaftermessage = null;
         if (Server.server) {
             return Server.server;
         }
@@ -1625,30 +1602,33 @@ class Server extends EventTarget {
         this.#start = new Promise(resolve => _resolve = resolve);
         this.#start.resolve = _resolve;
         this.ready = (async () => {
-            await Promise.all((await this.#idb.get("settings")).map(async (record) => {
+            this.#idb = await this.#idb;
+            await Promise.all((await this.#idb.get({ objectStoreName: "settings" })).map(async (record) => {
                 this.#settings.set(record.key, record.value);
                 if (this.#settingsListenerMap.has(record.key)) {
                     await this.#settingsListenerMap.get(record.key)(record.value, record.value);
                 }
             }));
-            await this.#idb.put("routes", {
-                priority: 0,
-                type: "string",
-                string: this.#scope + "/serviceworker.js",
-                ignoreCase: true,
-                storage: "cache",
-                key: (this.#scope + "/serviceworker.js")
+            await this.#idb.put({
+                objectStoreName: "routes",
+                record: {
+                    priority: 0,
+                    type: "string",
+                    string: this.#scope + "/serviceworker.js",
+                    ignoreCase: true,
+                    storage: "cache",
+                    key: (this.#scope + "/serviceworker.js")
+                }
             });
             let promises = [];
             this.dispatchEvent(new ServerEvent("beforestart", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
             await Promise.all(promises);
-            await this.#idb.ready;
             await this.#start;
             this.dispatchEvent(new ServerEvent("afterstart", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
             await Promise.all(promises);
             return this;
         })();
-        this.registerResponseFunction("redirect", {}, (request, files, args) => {
+        this.registerResponseFunction("redirect", {}, (_request, _files, args) => {
             return new Response("", {
                 headers: {
                     Location: args[0]
@@ -1658,28 +1638,27 @@ class Server extends EventTarget {
             });
         });
     }
-    #loadedScripts = new Map([
-        [null, null]
-    ]);
-    async #loadScript(id) {
-        if (!this.#loadedScripts.has(id)) {
-            let assets = await this.#idb.get("assets", { id });
-            if (assets.length > 0) {
-                let blob = assets[0].blob;
-                if (/(text|application)\/javascript/.test(blob.type)) {
-                    let result = await eval.call(self, await blob.text());
-                    this.#loadedScripts.set(id, result);
-                }
-                else {
-                    throw new DOMException(`Failed to load script: ${id}\nScripts mime type is not supported.`, `UnsupportedMimeType`);
-                }
-            }
-            else {
-                throw new DOMException(`Failed to load script: ${id}\nScript not found.`, `FileNotFound`);
-            }
-        }
-        return this.#loadedScripts.get(id);
+    #version;
+    #cacheName;
+    #scope;
+    #regex_safe_scope;
+    #online;
+    #idb;
+    get version() {
+        return this.#version;
     }
+    get scope() {
+        return this.#scope;
+    }
+    get regex_safe_scope() {
+        return this.#regex_safe_scope;
+    }
+    get online() {
+        return this.#online;
+    }
+    #start;
+    #loadedScripts;
+    #loadScript;
     async install() {
         console.log("server called 'install'", { this: this });
         let promises = [];
@@ -1709,13 +1688,22 @@ class Server extends EventTarget {
             await caches.delete(this.#cacheName);
             this.log("Cache erfolgreich gelöscht");
             let cache = await caches.open(this.#cacheName);
-            await Promise.all((await this.#idb.get("routes", { storage: "cache" })).map((route) => cache.add(route.key)));
-            await Promise.all((await this.#idb.get("routes", { storage: "static" })).map(async (route) => {
+            await Promise.all((await this.#idb.get({
+                objectStoreName: "routes",
+                indexName: "by_storage",
+                key: "cache",
+            })).map((route) => cache.add(route.key)));
+            await Promise.all((await this.#idb.get({
+                objectStoreName: "routes",
+                indexName: "by_storage",
+                key: "static",
+            })).map(async (route) => {
                 if (route.key.startsWith("local://")) {
                     return;
                 }
                 await this.registerAsset(route.key, await (await globalThis.fetch(route.key)).blob());
             }));
+            (await caches.open(this.#cacheName)).add(location.href);
             await this.registerAsset("local://null", new Blob(["server.log('script local://null loaded');"], { type: "application/javascript" }));
             this.log("Dateien erfolgreich in den Cache geladen");
             this.dispatchEvent(new ServerEvent("afterupdate", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
@@ -1735,8 +1723,8 @@ class Server extends EventTarget {
         this.dispatchEvent(new ServerEvent("beforeactivate", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
         await Promise.all(promises);
         promises.splice(0, promises.length);
-        let response = await (await caches.open(this.#cacheName)).match(this.#scope + "/serviceworker.js");
-        this.#version = response ? date("Y.md.Hi", response.headers.get("Date")) : "ServiceWorker is broken.";
+        let response = await (await caches.open(this.#cacheName)).match(location.href);
+        this.#version = response ? mpdate("Y.md.Hi", response.headers.get("Date")) : "Failed to get version.";
         await this.ready;
         this.dispatchEvent(new ServerEvent("activate", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
         await Promise.all(promises);
@@ -1771,8 +1759,13 @@ class Server extends EventTarget {
             return response;
         }
         try {
-            let routes = await this.#idb.get("routes", async (route) => ((route.type == "string" && ((route.ignoreCase && route.string.toLowerCase() == request.url.replace(/^([^\?\#]*)[\?\#].*$/, "$1").toLowerCase()) ||
-                (!route.ignoreCase && route.string == request.url.replace(/^([^\?\#]*)[\?\#].*$/, "$1")))) || (route.type == "regexp" && route.regexp.test(request.url.replace(/^([^\?\#]*)[\?\#].*$/, "$1")))));
+            let routes = await this.#idb.get({
+                objectStoreName: "routes",
+                async cursor(route) {
+                    return (route.type == "string" && ((route.ignoreCase && route.string.toLowerCase() == request.url.replace(/^([^\?\#]*)[\?\#].*$/, "$1").toLowerCase()) ||
+                        (!route.ignoreCase && route.string == request.url.replace(/^([^\?\#]*)[\?\#].*$/, "$1")))) || (route.type == "regexp" && route.regexp.test(request.url.replace(/^([^\?\#]*)[\?\#].*$/, "$1")));
+                }
+            });
             if (routes.length < 0) {
                 throw "File not cached: " + request.url;
             }
@@ -1792,7 +1785,7 @@ class Server extends EventTarget {
                     }
                 }
                 else if (route.storage == "static") {
-                    let assets = await this.#idb.get("assets", { id: route.key });
+                    let assets = await this.#idb.get({ objectStoreName: "assets", key: route.key });
                     if (assets.length > 0) {
                         response = new Response(assets[0].blob);
                     }
@@ -1811,7 +1804,7 @@ class Server extends EventTarget {
                             let files = {};
                             let responseFunctionDefinition = this.#responseFunctions.get(route.function);
                             Object.keys(responseFunctionDefinition.assets).map(key => {
-                                files[key] = new CacheResponse(responseFunctionDefinition.assets[key]);
+                                files[key] = new MPCacheResponse(responseFunctionDefinition.assets[key]);
                             });
                             response = await responseFunctionDefinition.responseFunction(request, files, route.arguments);
                         }
@@ -1886,8 +1879,8 @@ class Server extends EventTarget {
         }
         this.dispatchEvent(new ServerEvent("aftermessage", { cancelable: false, group: "message", data: message }));
     }
-    #settings = new Map();
-    #settingsListenerMap = new Map();
+    #settings;
+    #settingsListenerMap;
     getSetting(key) {
         return this.#settings.get(key);
     }
@@ -1897,16 +1890,9 @@ class Server extends EventTarget {
         if (this.#settingsListenerMap.has(key)) {
             await this.#settingsListenerMap.get(key)(old_value, value);
         }
-        await this.#idb.put("settings", { key, value });
+        await this.#idb.put({ objectStoreName: "settings", record: { key, value } });
     }
-    async #log(type, message, stack) {
-        await this.#idb.put("log", {
-            timestamp: Date.now(),
-            type,
-            message,
-            stack
-        });
-    }
+    #log;
     async log(message, stack = null) {
         console.log(message, stack);
         await this.#log("log", message, stack);
@@ -1920,7 +1906,9 @@ class Server extends EventTarget {
         await this.#log("error", message, stack);
     }
     async clearLog() {
-        await this.#idb.delete("log");
+        await this.#idb.delete({
+            objectStoreName: "log"
+        });
         this.#log("clear", "Das Protokoll wurde erfolgreich gelöscht", null);
         console.clear();
     }
@@ -1930,25 +1918,28 @@ class Server extends EventTarget {
         error: true
     }) {
         if (types.log && types.warn && types.error) {
-            return this.#idb.get("log");
+            return this.#idb.get({
+                objectStoreName: "log"
+            });
         }
         else {
             let type_array = [];
             types.log && type_array.push("log");
             types.warn && type_array.push("warn");
             types.error && type_array.push("error");
-            return this.#idb.get("log", {
-                type: new RegExp("^(" + type_array.join("|") + ")$")
+            return this.#idb.get({
+                objectStoreName: "log",
+                ranges: [new MPIDBKeyRanges().only("type", type_array, true)]
             });
         }
     }
-    #responseFunctions = new Map();
+    #responseFunctions;
     async registerResponseFunction(id, assets, responseFunction) {
         await Promise.all(Object.values(assets).map(async (asset) => {
             if (asset.startsWith("local://")) {
                 return;
             }
-            if ((await this.#idb.count("assets", { id: asset })) == 0) {
+            if ((await this.#idb.count({ objectStoreName: "assets", key: asset })) == 0) {
                 this.registerAsset(asset, await (await globalThis.fetch(asset)).blob());
             }
         }));
@@ -1967,10 +1958,10 @@ class Server extends EventTarget {
         return new Response(error, responseInit);
     }
     async registerRoute(route) {
-        await this.#idb.add("routes", route);
+        await this.#idb.add({ objectStoreName: "routes", record: route });
     }
     async registerAsset(id, blob) {
-        await this.#idb.put("assets", { id, blob });
+        await this.#idb.put({ objectStoreName: "assets", record: { id, blob } });
         await this.registerRoute({
             priority: 1,
             type: "string",
@@ -1981,16 +1972,19 @@ class Server extends EventTarget {
         });
     }
     async registerRedirection(routeSelector, destination) {
-        await this.#idb.add("routes", Object.assign({
-            storage: "dynamic",
-            priority: 0,
-            script: "local://null",
-            function: "redirect",
-            files: {},
-            arguments: [destination]
-        }, routeSelector));
+        await this.#idb.add({
+            objectStoreName: "routes",
+            record: Object.assign({
+                storage: "dynamic",
+                priority: 0,
+                script: "local://null",
+                function: "redirect",
+                files: {},
+                arguments: [destination]
+            }, routeSelector)
+        });
     }
-    #ononline = null;
+    #ononline;
     get ononline() {
         return this.#ononline;
     }
@@ -2006,7 +2000,7 @@ class Server extends EventTarget {
             this.#ononline = null;
         }
     }
-    #onoffline = null;
+    #onoffline;
     get onoffline() {
         return this.#onoffline;
     }
@@ -2022,7 +2016,7 @@ class Server extends EventTarget {
             this.#onoffline = null;
         }
     }
-    #onconnected = null;
+    #onconnected;
     get onconnected() {
         return this.#onconnected;
     }
@@ -2038,7 +2032,7 @@ class Server extends EventTarget {
             this.#onconnected = null;
         }
     }
-    #ondisconnected = null;
+    #ondisconnected;
     get ondisconnected() {
         return this.#ondisconnected;
     }
@@ -2054,7 +2048,7 @@ class Server extends EventTarget {
             this.#ondisconnected = null;
         }
     }
-    #onbeforeinstall = null;
+    #onbeforeinstall;
     get onbeforeinstall() {
         return this.#onbeforeinstall;
     }
@@ -2070,7 +2064,7 @@ class Server extends EventTarget {
             this.#onbeforeinstall = null;
         }
     }
-    #oninstall = null;
+    #oninstall;
     get oninstall() {
         return this.#oninstall;
     }
@@ -2086,7 +2080,7 @@ class Server extends EventTarget {
             this.#oninstall = null;
         }
     }
-    #onafterinstall = null;
+    #onafterinstall;
     get onafterinstall() {
         return this.#onafterinstall;
     }
@@ -2102,7 +2096,7 @@ class Server extends EventTarget {
             this.#onafterinstall = null;
         }
     }
-    #onbeforeupdate = null;
+    #onbeforeupdate;
     get onbeforeupdate() {
         return this.#onbeforeupdate;
     }
@@ -2118,7 +2112,7 @@ class Server extends EventTarget {
             this.#onbeforeupdate = null;
         }
     }
-    #onupdate = null;
+    #onupdate;
     get onupdate() {
         return this.#onupdate;
     }
@@ -2134,7 +2128,7 @@ class Server extends EventTarget {
             this.#onupdate = null;
         }
     }
-    #onafterupdate = null;
+    #onafterupdate;
     get onafterupdate() {
         return this.#onafterupdate;
     }
@@ -2150,7 +2144,7 @@ class Server extends EventTarget {
             this.#onafterupdate = null;
         }
     }
-    #onbeforeactivate = null;
+    #onbeforeactivate;
     get onbeforeactivate() {
         return this.#onbeforeactivate;
     }
@@ -2166,7 +2160,7 @@ class Server extends EventTarget {
             this.#onbeforeactivate = null;
         }
     }
-    #onactivate = null;
+    #onactivate;
     get onactivate() {
         return this.#onactivate;
     }
@@ -2182,7 +2176,7 @@ class Server extends EventTarget {
             this.#onactivate = null;
         }
     }
-    #onafteractivate = null;
+    #onafteractivate;
     get onafteractivate() {
         return this.#onafteractivate;
     }
@@ -2198,7 +2192,7 @@ class Server extends EventTarget {
             this.#onafteractivate = null;
         }
     }
-    #onbeforefetch = null;
+    #onbeforefetch;
     get onbeforefetch() {
         return this.#onbeforefetch;
     }
@@ -2214,7 +2208,7 @@ class Server extends EventTarget {
             this.#onbeforefetch = null;
         }
     }
-    #onfetch = null;
+    #onfetch;
     get onfetch() {
         return this.#onfetch;
     }
@@ -2230,7 +2224,7 @@ class Server extends EventTarget {
             this.#onfetch = null;
         }
     }
-    #onafterfetch = null;
+    #onafterfetch;
     get onafterfetch() {
         return this.#onafterfetch;
     }
@@ -2246,7 +2240,7 @@ class Server extends EventTarget {
             this.#onafterfetch = null;
         }
     }
-    #onbeforestart = null;
+    #onbeforestart;
     get onbeforestart() {
         return this.#onbeforestart;
     }
@@ -2262,7 +2256,7 @@ class Server extends EventTarget {
             this.#onbeforestart = null;
         }
     }
-    #onstart = null;
+    #onstart;
     get onstart() {
         return this.#onstart;
     }
@@ -2278,7 +2272,7 @@ class Server extends EventTarget {
             this.#onstart = null;
         }
     }
-    #onafterstart = null;
+    #onafterstart;
     get onafterstart() {
         return this.#onafterstart;
     }
@@ -2294,7 +2288,7 @@ class Server extends EventTarget {
             this.#onafterstart = null;
         }
     }
-    #onbeforemessage = null;
+    #onbeforemessage;
     get onbeforemessage() {
         return this.#onbeforemessage;
     }
@@ -2310,7 +2304,7 @@ class Server extends EventTarget {
             this.#onbeforemessage = null;
         }
     }
-    #onmessage = null;
+    #onmessage;
     get onmessage() {
         return this.#onmessage;
     }
@@ -2326,7 +2320,7 @@ class Server extends EventTarget {
             this.#onmessage = null;
         }
     }
-    #onaftermessage = null;
+    #onaftermessage;
     get onaftermessage() {
         return this.#onaftermessage;
     }
@@ -2343,142 +2337,45 @@ class Server extends EventTarget {
         }
     }
 }
+Server.server = new Server();
 /// <reference no-default-lib="true" />
 /// <reference lib="esnext" />
 /// <reference lib="webworker" />
 /// <reference path="serviceworker.d.ts" />
 /// <reference path="helper.ts" />
-/// <reference path="cacheresponse.ts" />
-/// <reference path="indexeddb.ts" />
-/// <reference path="indexeddbindex.ts" />
-/// <reference path="indexeddbevent.ts" />
+/// <reference path="../libs/mpcacheresponse/index.ts" />
+/// <reference path="../libs/mpdate/index.ts" />
+/// <reference path="../libs/mpidb/index.ts" />
 /// <reference path="serverevent.ts" />
 /// <reference path="server.ts" />
 // const DEBUG_MODE = "online";
 const server = new Server();
-/// <reference no-default-lib="true" />
-/// <reference path="index.ts" />
-class CacheResponse {
-    [Symbol.toStringTag] = "CacheResponse";
-    #response = null;
-    #arrayBuffer;
-    #blob;
-    #formData;
-    #json;
-    #text;
-    #url;
-    constructor(url) {
-        this.#url = url;
-    }
-    get url() {
-        return this.#url;
-    }
-    async #getResponse() {
-        if (this.#response == null) {
-            this.#response = await server.fetch(this.url) || new Response(null, {
-                status: 404,
-                statusText: "File not cached: " + this.url
-            });
-        }
-    }
-    async arrayBuffer() {
-        if (this.#response == null) {
-            await this.#getResponse();
-        }
-        if (!this.#arrayBuffer) {
-            this.#arrayBuffer = await this.#response.arrayBuffer();
-        }
-        return this.#arrayBuffer;
-    }
-    async blob() {
-        if (this.#response == null) {
-            await this.#getResponse();
-        }
-        if (!this.#blob) {
-            this.#blob = await this.#response.blob();
-        }
-        return this.#blob;
-    }
-    async formData() {
-        if (this.#response == null) {
-            await this.#getResponse();
-        }
-        if (!this.#formData) {
-            this.#formData = await this.#response.formData();
-        }
-        return this.#formData;
-    }
-    async json() {
-        if (this.#response == null) {
-            await this.#getResponse();
-        }
-        if (!this.#json) {
-            this.#json = await this.#response.json();
-        }
-        return this.#json;
-    }
-    async text() {
-        if (this.#response == null) {
-            await this.#getResponse();
-        }
-        if (!this.#text) {
-            this.#text = await this.#response.text();
-        }
-        return this.#text;
-    }
-    clone() {
-        return new CacheResponse(this.#url);
-    }
-}
-/// <reference no-default-lib="true" />
 /// <reference path="server/index.ts" />
 // server.setSetting("site-title", "ServiceWorkerServer");
-// server.setSetting("theme-color", "#000000");
+server.setSetting("theme-color", "#000000");
 server.setSetting("copyright", "\u00a9 " + new Date().getFullYear() + " MPDieckmann.");
 // server.setSetting("server-icon", Server.APP_SCOPE + "/client/png/index/${p}/${w}-${h}.png");
 // server.setSetting("access-token", "default-access");
 // server.setSetting("id", "default");
 server.start();
-/// <reference no-default-lib="true" />
 /// <reference path="config.ts" />
-/// <reference no-default-lib="true" />
-/// <reference path="../server/server.ts" />
+/// <reference path="../server/index.ts" />
 class Scope {
-    [Symbol.toStringTag] = "Scope";
-    GET = {};
-    POST = {};
-    REQUEST = {};
-    url;
-    ready;
-    request;
-    #status = 200;
-    get status() {
-        return this.#status;
-    }
-    set status(value) {
-        if (value > 100 && value < 600) {
-            this.#status = value;
-        }
-    }
-    statusText = "OK";
-    #headers = new Headers({
-        "Content-Type": "text/html;charset=utf8"
-    });
-    get headers() {
-        return this.#headers;
-    }
-    set headers(value) {
-        if (value instanceof Headers) {
-            this.#headers = value;
-        }
-        else {
-            this.#headers = new Headers(value);
-        }
-    }
-    site_title = "";
-    page_title = "";
-    data;
     constructor(request, data = {}) {
+        this.GET = {};
+        this.POST = {};
+        this.REQUEST = {};
+        this.#status = 200;
+        this.statusText = "OK";
+        this.#headers = new Headers({
+            "Content-Type": "text/html;charset=utf8"
+        });
+        this.site_title = "";
+        this.page_title = "";
+        this.#styles = {};
+        this.#scripts = {};
+        this.#menus = {};
+        this.#toasts = [];
         this.request = request;
         this.url = new URL(request.url);
         this.data = data;
@@ -2497,18 +2394,48 @@ class Scope {
         })();
     }
     /**
+     * Convert special characters to HTML entities
+     *
+     * @param string The string being converted.
+     * @return The converted string.
+     */
+    static htmlspecialchars(string) {
+        return string.toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+    }
+    #status;
+    get status() {
+        return this.#status;
+    }
+    set status(value) {
+        if (value > 100 && value < 600) {
+            this.#status = value;
+        }
+    }
+    #headers;
+    get headers() {
+        return this.#headers;
+    }
+    set headers(value) {
+        if (value instanceof Headers) {
+            this.#headers = value;
+        }
+        else {
+            this.#headers = new Headers(value);
+        }
+    }
+    /**
      * Füllt den Template-String mit Daten
      *
      * @param template Der Template-String
      */
     async build(template) {
-        if (template instanceof CacheResponse) {
+        if (template instanceof MPCacheResponse) {
             template = await template.text();
         }
-        let matches = template.match(/\{\{ (generate_[a-z0-9_]+)\(([a-z0-9_, -+]*)\) \}\}/g);
+        let matches = template.match(/\{\{ (generate_[A-Za-z0-9_]+)\(([A-Za-z0-9_, \-+]*)\) \}\}/g);
         if (matches) {
             for (let value of matches) {
-                let match = /\{\{ (generate_[a-z0-9_]+)\(([a-z0-9_, -+]*)\) \}\}/.exec(value);
+                let match = /\{\{ (generate_[A-Za-z0-9_]+)\(([A-Za-z0-9_, \-+]*)\) \}\}/.exec(value);
                 if (typeof this[match[1]] == "function") {
                     let pattern = match[0];
                     let args = match[2].split(",").map(a => a.trim());
@@ -2520,7 +2447,7 @@ class Scope {
         return template;
     }
     async toResponse(template) {
-        if (template instanceof CacheResponse) {
+        if (template instanceof MPCacheResponse) {
             template = await template.text();
         }
         return new Response(await this.build(template), this);
@@ -2539,10 +2466,10 @@ class Scope {
             entry_class: "menuitem",
             id_prefix: "",
         });
-        let html = "<ul class=\"" + this.htmlspecialchars(options.menu_class) + "\">";
+        let html = "<ul class=\"" + Scope.htmlspecialchars(options.menu_class) + "\">";
         for (let id in menu) {
             let item = menu[id];
-            html += "<li class=\"" + this.htmlspecialchars(options.entry_class);
+            html += "<li class=\"" + Scope.htmlspecialchars(options.entry_class);
             if ("submenu" in item && Object.keys(item.submenu).length > 0) {
                 html += " has-submenu";
             }
@@ -2550,10 +2477,10 @@ class Scope {
             if (this.url.origin + this.url.pathname == url.origin + url.pathname) {
                 html += " selected";
             }
-            html += "\" id=\"" + this.htmlspecialchars(options.id_prefix + id) + "_item\"><a href=\"" + this.htmlspecialchars(item.href) + "\" id=\"" + this.htmlspecialchars(id) + "\">" + this.htmlspecialchars(item.label) + "</a>";
+            html += "\" id=\"" + Scope.htmlspecialchars(options.id_prefix + id) + "_item\"><a href=\"" + Scope.htmlspecialchars(item.href) + "\" id=\"" + Scope.htmlspecialchars(id) + "\">" + Scope.htmlspecialchars(item.label) + "</a>";
             if ("submenu" in item && Object.keys(item.submenu).length > 0) {
                 html += this.build_menu(item.submenu, Object.assign({
-                    id_prefix: this.htmlspecialchars("id_prefix" in options ? options.id_prefix + "-" + id + "-" : id + "-"),
+                    id_prefix: Scope.htmlspecialchars("id_prefix" in options ? options.id_prefix + "-" + id + "-" : id + "-"),
                     menu_class: options.submenu_class,
                 }, options));
             }
@@ -2562,16 +2489,7 @@ class Scope {
         html += "</ul>";
         return html;
     }
-    /**
-     * Convert special characters to HTML entities
-     *
-     * @param string The string being converted.
-     * @return The converted string.
-     */
-    htmlspecialchars(string) {
-        return string.toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
-    }
-    #styles = {};
+    #styles;
     /**
      * Fügt ein Stylesheet hinzu oder ändert ein bestehendes
      *
@@ -2582,7 +2500,7 @@ class Scope {
      * @param type Typ des Stylesheets
      */
     add_style(id, href, media = "all,screen,handheld,print", type = "text/css") {
-        this.#styles[id] = { id, href: href instanceof CacheResponse ? href.url : href, media, type };
+        this.#styles[id] = { id, href: href instanceof MPCacheResponse ? href.url : href, media, type };
     }
     /**
      * Löscht ein zuvor hinzugefügtes Stylesheet
@@ -2593,7 +2511,7 @@ class Scope {
     remove_style(id) {
         delete this.#styles[id];
     }
-    #scripts = {};
+    #scripts;
     /**
      * Fügt ein Skript hinzu
      *
@@ -2604,7 +2522,7 @@ class Scope {
      * @param position Gibt an, an welcher Position das Sktip eingefügt werden soll
      */
     add_script(id, src, type = "text/javascript", position = "head") {
-        this.#scripts[id] = { id, src: src instanceof CacheResponse ? src.url : src, type, position };
+        this.#scripts[id] = { id, src: src instanceof MPCacheResponse ? src.url : src, type, position };
     }
     /**
      * Löscht ein zuvor hinzugefügtes Skript
@@ -2614,7 +2532,7 @@ class Scope {
     remove_script(id) {
         delete this.#scripts[id];
     }
-    #menus = {};
+    #menus;
     add_menu_item(path, label, href, submenu = this.#menus) {
         let patharray = path.split("/");
         let id = patharray.shift();
@@ -2632,7 +2550,7 @@ class Scope {
             submenu[id] = { label, href, submenu: {} };
         }
     }
-    #toasts = [];
+    #toasts;
     /**
      * Zeigt eine Nachrichtenblase für eine kurze Dauer an
      *
@@ -2658,7 +2576,7 @@ class Scope {
         }
         switch (escape) {
             case "html":
-                return this.htmlspecialchars(String(this.data[index]));
+                return Scope.htmlspecialchars(String(this.data[index]));
             case "url":
                 return encodeURI(String(this.data[index]));
             case "json":
@@ -2669,12 +2587,21 @@ class Scope {
         }
     }
     /**
+     * Gibt eine Server-Einstellung aus
+     *
+     * @param key Gibt an, welche Einstellung zurückgegeben werden soll
+     * @param escape Gibt an, wie die Zeichenfolge formatiert werden soll
+     */
+    generate_setting(key, escape) {
+        return this.generate_value.call({ data: { setting: String(Server.server.getSetting(key)) } }, "setting", escape);
+    }
+    /**
      * Gibt die Version des Servers zurück
      *
      * @param escape Gibt an, wie die Zeichenfolge formatiert werden soll
      */
     generate_version(escape) {
-        return this.generate_value.call({ version: "Version: " + server.version + (server.online ? " (Online)" : " (Offline)") }, "version", escape);
+        return this.generate_value.call({ data: { version: "Version: " + Server.server.version + (Server.server.online ? " (Online)" : " (Offline)") } }, "version", escape);
     }
     /**
      * Gibt die Copyright-Zeichenfolge des Servers zurück
@@ -2682,7 +2609,7 @@ class Scope {
      * @param escape Gibt an, wie die Zeichenfolge formatiert werden soll
      */
     generate_copyright(escape) {
-        return this.generate_value.call({ copyright: server.getSetting("copyright") }, "copyright", escape);
+        return this.generate_value.call({ data: { copyright: Server.server.getSetting("copyright") } }, "copyright", escape);
     }
     /**
      * Gibt die Version des Servers zurück
@@ -2690,7 +2617,7 @@ class Scope {
      * @param escape Gibt an, wie die Zeichenfolge formatiert werden soll
      */
     generate_url(url = "", escape = "url") {
-        return this.generate_value.call({ url: server.scope + url }, "url", escape);
+        return this.generate_value.call({ data: { url: Server.server.scope + url } }, "url", escape);
     }
     /**
      *
@@ -2698,7 +2625,7 @@ class Scope {
      * @returns
      */
     generate_offline_switch(hidden) {
-        return `<input type="checkbox" name="switch_offline_mode" class="switch_offline_mode" onclick="navigator.serviceWorker.controller.postMessage({type:&quot;set-setting&quot;,property:&quot;offline-mode&quot;,value:this.checked})" ${server.getSetting("offline-mode") ? ' checked=""' : ""}${hidden == "true" ? "" : ' hidden="'}/>`;
+        return `<input type="checkbox" name="switch_offline_mode" class="switch_offline_mode" onclick="navigator.serviceWorker.controller.postMessage({type:&quot;set-setting&quot;,property:&quot;offline-mode&quot;,value:this.checked})" ${Server.server.getSetting("offline-mode") ? ' checked=""' : ""}${hidden == "true" ? "" : ' hidden="'}/>`;
     }
     /**
      * Gibt den Inhalt des &lt;title&gt;-Tags aus
@@ -2709,16 +2636,16 @@ class Scope {
     generate_title(mode) {
         switch (mode) {
             case "page":
-                return this.htmlspecialchars(this.page_title);
+                return Scope.htmlspecialchars(this.page_title);
             case "site":
-                return this.htmlspecialchars(this.site_title);
+                return Scope.htmlspecialchars(this.site_title);
             case "full":
             default:
                 if (this.page_title) {
-                    return this.htmlspecialchars(this.page_title + " | " + this.site_title);
+                    return Scope.htmlspecialchars(this.page_title + " | " + this.site_title);
                 }
                 else {
-                    return this.htmlspecialchars(this.site_title);
+                    return Scope.htmlspecialchars(this.site_title);
                 }
         }
     }
@@ -2731,7 +2658,7 @@ class Scope {
         let html = "";
         for (let index in this.#styles) {
             let style = this.#styles[index];
-            html += "<link id=\"" + this.htmlspecialchars(style.id) + "\" rel=\"stylesheet\" href=\"" + this.htmlspecialchars(style.href) + "\" media=\"" + this.htmlspecialchars(style.media) + "\" type=\"" + this.htmlspecialchars(style.type) + "\" />";
+            html += "<link id=\"" + Scope.htmlspecialchars(style.id) + "\" rel=\"stylesheet\" href=\"" + Scope.htmlspecialchars(style.href) + "\" media=\"" + Scope.htmlspecialchars(style.media) + "\" type=\"" + Scope.htmlspecialchars(style.type) + "\" />";
         }
         return html;
     }
@@ -2747,7 +2674,7 @@ class Scope {
         for (let index in this.#scripts) {
             let script = this.#scripts[index];
             if (script.position == position) {
-                html += "<script id=\"" + this.htmlspecialchars(script.id) + "\" src=\"" + this.htmlspecialchars(script.src) + "\" type=\"" + this.htmlspecialchars(script.type) + "\"></script>";
+                html += "<script id=\"" + Scope.htmlspecialchars(script.id) + "\" src=\"" + Scope.htmlspecialchars(script.src) + "\" type=\"" + Scope.htmlspecialchars(script.type) + "\"></script>";
             }
         }
         ;
@@ -2793,11 +2720,11 @@ class Scope {
                 options.error = true;
                 break;
         }
-        let entries = await server.getLog(options);
+        let entries = await Server.server.getLog(options);
         if (entries.length == 0 && hide_empty == "true") {
             return "";
         }
-        return `<span class="${this.htmlspecialchars(type)}-badge">${this.htmlspecialchars("" + entries.length)}</span>`;
+        return `<span class="${Scope.htmlspecialchars(type)}-badge">${Scope.htmlspecialchars("" + entries.length)}</span>`;
     }
     /**
      * Erstellt Toasts
@@ -2833,7 +2760,6 @@ class Scope {
   }
 
  */ 
-/// <reference no-default-lib="true" />
 /// <reference path="../config.ts" />
 /// <reference path="../plugins/scope.ts" />
 server.registerRoute({
@@ -2871,15 +2797,15 @@ server.registerResponseFunction(server.scope + "/debug", {
         if (typeof prop == "function" ||
             typeof prop == "object" && prop !== null) {
             if (!is_prototype && props.has(prop)) {
-                return `<div class="value-non-primitive">${prefix}<span class="value type-${typeof prop}"><a href="#${scope.htmlspecialchars(encodeURIComponent(props.get(prop)))}">${props.get(prop)}</a></span></div>`;
+                return `<div class="value-non-primitive">${prefix}<span class="value type-${typeof prop}"><a href="#${Scope.htmlspecialchars(encodeURIComponent(props.get(prop)))}">${props.get(prop)}</a></span></div>`;
             }
             let obj_id;
             if (typeof prop == "function") {
-                obj_id = scope.htmlspecialchars(prop.toString().split(" ", 1)[0] == "class" ? "class" : "function") + " " + scope.htmlspecialchars(prop.name);
+                obj_id = Scope.htmlspecialchars(prop.toString().split(" ", 1)[0] == "class" ? "class" : "function") + " " + Scope.htmlspecialchars(prop.name);
                 if (!props.has(prop)) {
                     let count = props.counters.get(obj_id) || 0;
                     props.counters.set(obj_id, ++count);
-                    obj_id += `#${count}(${scope.htmlspecialchars(prop.length)} argument${prop.length == 1 ? "" : "s"})`;
+                    obj_id += `#${count}(${Scope.htmlspecialchars(prop.length)} argument${prop.length == 1 ? "" : "s"})`;
                     props.set(prop, obj_id);
                 }
             }
@@ -2892,24 +2818,24 @@ server.registerResponseFunction(server.scope + "/debug", {
                     props.set(prop, obj_id);
                 }
             }
-            return `<details class="value-non-primitive" id="${scope.htmlspecialchars(encodeURIComponent(props.get(prop)))}"><summary>${prefix}<span class="value type-${typeof prop}">${obj_id}</span></summary>${[Object.getOwnPropertyNames(prop), Object.getOwnPropertySymbols(prop)].flat().map(key => {
+            return `<details class="value-non-primitive" id="${Scope.htmlspecialchars(encodeURIComponent(props.get(prop)))}"><summary>${prefix}<span class="value type-${typeof prop}">${obj_id}</span></summary>${[Object.getOwnPropertyNames(prop), Object.getOwnPropertySymbols(prop)].flat().map(key => {
                 let desc = Object.getOwnPropertyDescriptor(prop, key);
                 let html = "";
                 if (typeof desc.get == "function") {
-                    html += `<div class="property-${desc.enumerable ? "" : "non-"}enumerable">${expand_property(props, desc.get, `<span class="property-key"><span class="property-descriptor">get</span> ${scope.htmlspecialchars(key.toString())}</span>: `)}</div>`;
+                    html += `<div class="property-${desc.enumerable ? "" : "non-"}enumerable">${expand_property(props, desc.get, `<span class="property-key"><span class="property-descriptor">get</span> ${Scope.htmlspecialchars(key.toString())}</span>: `)}</div>`;
                 }
                 if (typeof desc.set == "function") {
-                    html += `<div class="property-${desc.enumerable ? "" : "non-"}enumerable">${expand_property(props, desc.set, `<span class="property-key"><span class="property-descriptor">set</span> ${scope.htmlspecialchars(key.toString())}</span>: `)}</div>`;
+                    html += `<div class="property-${desc.enumerable ? "" : "non-"}enumerable">${expand_property(props, desc.set, `<span class="property-key"><span class="property-descriptor">set</span> ${Scope.htmlspecialchars(key.toString())}</span>: `)}</div>`;
                 }
                 if (typeof desc.get != "function" &&
                     typeof desc.set != "function") {
-                    html += `<div class="property-${desc.enumerable ? "" : "non-"}enumerable">${expand_property(props, desc.value, `<span class="property-key">${desc.writable ? "" : `<span class="property-descriptor">readonly</span> `}${scope.htmlspecialchars(key.toString())}</span>: `)}</div>`;
+                    html += `<div class="property-${desc.enumerable ? "" : "non-"}enumerable">${expand_property(props, desc.value, `<span class="property-key">${desc.writable ? "" : `<span class="property-descriptor">readonly</span> `}${Scope.htmlspecialchars(key.toString())}</span>: `)}</div>`;
                 }
                 return html;
             }).join("") + `<div class="property-non-enumerable">${expand_property(props, Object.getPrototypeOf(prop), `<span class="property-key"><span class="property-descriptor">[[Prototype]]:</span></span> `, true)}`}</details>`;
         }
         else {
-            return `<div class="value-primitive">${prefix}<span class="value type-${typeof prop}">${scope.htmlspecialchars("" + prop)}</span></div>`;
+            return `<div class="value-primitive">${prefix}<span class="value type-${typeof prop}">${Scope.htmlspecialchars("" + prop)}</span></div>`;
         }
     }
     main += `<div class="server"><h2>Server</h2>${expand_property(new Map(), server)}</div>`;
@@ -2920,12 +2846,12 @@ server.registerResponseFunction(server.scope + "/debug", {
   <input type="checkbox" id="hide_error" hidden />
   ${(await server.getLog()).map(entry => {
         if (entry.stack) {
-            return `<details class="log-${scope.htmlspecialchars("" + entry.type)}">
-      <summary><span class="timestamp">${scope.htmlspecialchars(date("d.m.Y h:i:s", entry.timestamp))}</span> ${expand_property(new Map(), entry.message)}</summary>
+            return `<details class="log-${Scope.htmlspecialchars("" + entry.type)}">
+      <summary><span class="timestamp">${Scope.htmlspecialchars(mpdate("d.m.Y h:i:s", entry.timestamp))}</span> ${expand_property(new Map(), entry.message)}</summary>
       ${expand_property(new Map(), entry.stack)}
     </details>`;
         }
-        return `<div class="log-${scope.htmlspecialchars("" + entry.type)}"><span class="timestamp">${scope.htmlspecialchars(date("d.m.Y h:i:s", entry.timestamp))}</span> ${scope.htmlspecialchars("" + entry.message)}</div>`;
+        return `<div class="log-${Scope.htmlspecialchars("" + entry.type)}"><span class="timestamp">${Scope.htmlspecialchars(mpdate("d.m.Y h:i:s", entry.timestamp))}</span> ${Scope.htmlspecialchars("" + entry.message)}</div>`;
     }).join("\n")}
   <div class="sticky-footer">
     <a class="mpc-button" href="${server.scope}/debug?clear_logs=1">Alles l&ouml;schen</a>
@@ -2938,7 +2864,6 @@ server.registerResponseFunction(server.scope + "/debug", {
     scope.data = { main };
     return scope.toResponse(files["layout.html"]);
 });
-/// <reference no-default-lib="true" />
 /// <reference path="../config.ts" />
 server.registerRoute({
     priority: 2,
@@ -2963,22 +2888,16 @@ server.registerResponseFunction(server.scope + "/index.html", {
     scope.add_script("main-js", files["main.js"]);
     scope.page_title = "Startseite";
     scope.data = {
-        main: `<ul>
-<li><a href="/train">Trainieren</a></li>
-<li><a href="/debug">Debug</a></li>
-<li><a href="/list">Liste</a></li>
-</ul>`,
+        main: ``,
     };
     return new Response(await scope.build(files["layout.html"]), scope);
 });
-/// <reference no-default-lib="true" />
 /// <reference path="../config.ts" />
 server.registerRedirection({
     priority: 1,
     type: "regexp",
     regexp: new RegExp("^" + server.regex_safe_scope + "/install(.[a-z0-9]+)?$", "i")
 }, "/");
-/// <reference no-default-lib="true" />
 /// <reference path="../config.ts" />
 server.registerRoute({
     priority: 0,

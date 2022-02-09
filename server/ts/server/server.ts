@@ -1,62 +1,42 @@
-/// <reference no-default-lib="true" />
-/// <reference path="index.ts" />
-
 class Server extends EventTarget {
-  [Symbol.toStringTag] = "Server";
-
   static readonly server: Server = new Server();
   #version: string;
   readonly #cacheName = "ServerCache-20211226";
   readonly #scope = <`https://${string}`>registration.scope.replace(/\/$/, "");
   readonly #regex_safe_scope = this.#scope.escape(String.ESCAPE_REGEXP, "\\");
   #online: boolean = navigator.onLine;
-  #idb = new IndexedDB<{
-    settings: {
-      Records: { key: keyof ServerSettingsMap, value: ServerSettingsMap[keyof ServerSettingsMap]; };
-      Indices: "";
-    }
-    routes: {
-      Records: Route;
-      Indices: "by_priority" | "by_function" | "by_key" | "by_string";
-    }
-    log: {
-      Records: { type: string, message: IndexedDBSupportedDataTypes, stack: IndexedDBSupportedDataTypes, timestamp: number };
-      Indices: "by_type";
-    }
-    assets: {
-      Records: { id: string; blob: Blob; };
-      Indices: "";
-    }
-  }>("Server", 1, {
+  #idb: MPIDBPromise<ServerMPIDBInit> | MPIDB<ServerMPIDBInit> = MPIDB.open<ServerMPIDBInit>("Server", 1, {
     settings: {
       name: "settings",
       autoIncrement: false,
       keyPath: "key",
-      indices: []
+      indices: {}
     },
     routes: {
       name: "routes",
       autoIncrement: true,
-      indices: [
-        { name: "by_priority", keyPath: "priority", multiEntry: false, unique: false },
-        { name: "by_string", keyPath: "string", multiEntry: false, unique: false },
-        { name: "by_key", keyPath: "key", multiEntry: false, unique: false },
-        { name: "by_function", keyPath: "function", multiEntry: false, unique: false }
-      ]
+      keyPath: null,
+      indices: {
+        by_priority: { name: "by_priority", keyPath: "priority", multiEntry: false, unique: false },
+        by_string: { name: "by_string", keyPath: "string", multiEntry: false, unique: false },
+        by_key: { name: "by_key", keyPath: "key", multiEntry: false, unique: false },
+        by_function: { name: "by_function", keyPath: "function", multiEntry: false, unique: false },
+        by_storage: { name: "by_storage", keyPath: "storage", multiEntry: false, unique: false }
+      }
     },
     log: {
       name: "log",
       autoIncrement: true,
       keyPath: "id",
-      indices: [
-        { name: "by_type", keyPath: "type", multiEntry: false, unique: false }
-      ]
+      indices: {
+        by_type: { name: "by_type", keyPath: "type", multiEntry: false, unique: false }
+      }
     },
     assets: {
       name: "assets",
       keyPath: "id",
       autoIncrement: false,
-      indices: []
+      indices: {}
     }
   });
 
@@ -119,26 +99,30 @@ class Server extends EventTarget {
     this.#start.resolve = _resolve;
 
     this.ready = (async () => {
-      await Promise.all((await this.#idb.get("settings")).map(async record => {
+      this.#idb = await this.#idb;
+      
+      await Promise.all((await this.#idb.get({ objectStoreName: "settings" })).map(async record => {
         this.#settings.set(record.key, record.value);
         if (this.#settingsListenerMap.has(record.key)) {
           await this.#settingsListenerMap.get(record.key)(record.value, record.value);
         }
       }));
-
-      await this.#idb.put("routes", {
-        priority: 0,
-        type: "string",
-        string: this.#scope + "/serviceworker.js",
-        ignoreCase: true,
-        storage: "cache",
-        key: <`https://${string}`>(this.#scope + "/serviceworker.js")
+      
+      await this.#idb.put({
+        objectStoreName: "routes",
+        record: {
+          priority: 0,
+          type: "string",
+          string: this.#scope + "/serviceworker.js",
+          ignoreCase: true,
+          storage: "cache",
+          key: <`https://${string}`>(this.#scope + "/serviceworker.js")
+        }
       });
 
       let promises: PromiseLike<void>[] = [];
       this.dispatchEvent(new ServerEvent("beforestart", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
       await Promise.all(promises);
-      await this.#idb.ready;
 
       await this.#start;
       this.dispatchEvent(new ServerEvent("afterstart", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
@@ -146,7 +130,7 @@ class Server extends EventTarget {
       return this;
     })();
 
-    this.registerResponseFunction("redirect", {}, (request, files, args: [string]) => {
+    this.registerResponseFunction("redirect", {}, (_request, _files, args: [string]) => {
       return new Response("", {
         headers: {
           Location: args[0]
@@ -160,9 +144,12 @@ class Server extends EventTarget {
   #loadedScripts: Map<string, any> = new Map([
     [null, null]
   ]);
-  async #loadScript(id: string) {
+  #loadScript = async (id: string) => {
     if (!this.#loadedScripts.has(id)) {
-      let assets = await this.#idb.get("assets", { id });
+      let assets = await this.#idb.get({
+        objectStoreName: "assets",
+        key: id
+      });
       if (assets.length > 0) {
         let blob = assets[0].blob;
         if (/(text|application)\/javascript/.test(blob.type)) {
@@ -209,20 +196,22 @@ class Server extends EventTarget {
       let cache = await caches.open(this.#cacheName);
       await Promise.all(
         (
-          await this.#idb.get(
-            "routes",
-            { storage: "cache" }
-          )
+          await this.#idb.get({
+            objectStoreName: "routes",
+            indexName: "by_storage",
+            key: "cache",
+          })
         ).map(
           (route: CacheRoute) => cache.add(route.key)
         )
       );
       await Promise.all(
         (
-          await this.#idb.get(
-            "routes",
-            { storage: "static" }
-          )
+          await this.#idb.get({
+            objectStoreName: "routes",
+            indexName: "by_storage",
+            key: "static",
+          })
         ).map(
           async (route: StaticRoute) => {
             if (route.key.startsWith("local://")) {
@@ -232,6 +221,7 @@ class Server extends EventTarget {
           }
         )
       );
+      (await caches.open(this.#cacheName)).add(location.href);
       await this.registerAsset("local://null", new Blob(["server.log('script local://null loaded');"], { type: "application/javascript" }));
       this.log("Dateien erfolgreich in den Cache geladen");
       this.dispatchEvent(new ServerEvent("afterupdate", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
@@ -250,8 +240,8 @@ class Server extends EventTarget {
     this.dispatchEvent(new ServerEvent("beforeactivate", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
     await Promise.all(promises);
     promises.splice(0, promises.length);
-    let response = await (await caches.open(this.#cacheName)).match(this.#scope + "/serviceworker.js");
-    this.#version = response ? date("Y.md.Hi", response.headers.get("Date")) : "ServiceWorker is broken.";
+    let response = await (await caches.open(this.#cacheName)).match(location.href);
+    this.#version = response ? mpdate("Y.md.Hi", response.headers.get("Date")) : "Failed to get version.";
     await this.ready;
     this.dispatchEvent(new ServerEvent("activate", { cancelable: false, group: "start", data: { await(promise) { promises.push(promise); } } }));
     await Promise.all(promises);
@@ -286,16 +276,19 @@ class Server extends EventTarget {
       return response;
     }
     try {
-      let routes = await this.#idb.get("routes", async route => (
-        (
-          route.type == "string" && (
-            (route.ignoreCase && route.string.toLowerCase() == request.url.replace(/^([^\?\#]*)[\?\#].*$/, "$1").toLowerCase()) ||
-            (!route.ignoreCase && route.string == request.url.replace(/^([^\?\#]*)[\?\#].*$/, "$1"))
-          )
-        ) || (
-          route.type == "regexp" && route.regexp.test(request.url.replace(/^([^\?\#]*)[\?\#].*$/, "$1"))
-        )
-      ));
+      let routes = await this.#idb.get({
+        objectStoreName: "routes",
+        async cursor(route: Route) {
+          return (
+            route.type == "string" && (
+              (route.ignoreCase && route.string.toLowerCase() == request.url.replace(/^([^\?\#]*)[\?\#].*$/, "$1").toLowerCase()) ||
+              (!route.ignoreCase && route.string == request.url.replace(/^([^\?\#]*)[\?\#].*$/, "$1"))
+            )
+          ) || (
+              route.type == "regexp" && route.regexp.test(request.url.replace(/^([^\?\#]*)[\?\#].*$/, "$1"))
+            );
+        }
+      });
 
       if (routes.length < 0) {
         throw "File not cached: " + request.url;
@@ -318,7 +311,7 @@ class Server extends EventTarget {
             response = null;
           }
         } else if (route.storage == "static") {
-          let assets = await this.#idb.get("assets", { id: route.key });
+          let assets = await this.#idb.get({ objectStoreName: "assets", key: route.key });
           if (assets.length > 0) {
             response = new Response(assets[0].blob);
           } else {
@@ -335,7 +328,7 @@ class Server extends EventTarget {
               let files = {};
               let responseFunctionDefinition = this.#responseFunctions.get(route.function);
               Object.keys(responseFunctionDefinition.assets).map(key => {
-                files[key] = new CacheResponse(responseFunctionDefinition.assets[key]);
+                files[key] = new MPCacheResponse(<`https://${string}`>responseFunctionDefinition.assets[key]);
               });
               response = await responseFunctionDefinition.responseFunction(request, files, route.arguments);
             } catch (error) {
@@ -414,30 +407,35 @@ class Server extends EventTarget {
     if (this.#settingsListenerMap.has(key)) {
       await this.#settingsListenerMap.get(key)(old_value, value);
     }
-    await this.#idb.put("settings", { key, value });
+    await this.#idb.put({ objectStoreName: "settings", record: { key, value } });
   }
-  async #log(type: string, message: IndexedDBSupportedDataTypes, stack: IndexedDBSupportedDataTypes): Promise<void> {
-    await this.#idb.put("log", {
-      timestamp: Date.now(),
-      type,
-      message,
-      stack
+  #log = async (type: string, message: MPIDBValidRecord, stack: MPIDBValidRecord): Promise<void> => {
+    await this.#idb.put({
+      objectStoreName: "log",
+      record: {
+        timestamp: Date.now(),
+        type,
+        message,
+        stack
+      }
     });
   }
-  async log(message: IndexedDBSupportedDataTypes, stack: IndexedDBSupportedDataTypes = null): Promise<void> {
+  async log(message: MPIDBValidRecord, stack: MPIDBValidRecord = null): Promise<void> {
     console.log(message, stack);
     await this.#log("log", message, stack);
   }
-  async warn(message: IndexedDBSupportedDataTypes, stack: IndexedDBSupportedDataTypes = null): Promise<void> {
+  async warn(message: MPIDBValidRecord, stack: MPIDBValidRecord = null): Promise<void> {
     console.warn(message, stack);
     await this.#log("warn", message, stack);
   }
-  async error(message: IndexedDBSupportedDataTypes, stack: IndexedDBSupportedDataTypes = null): Promise<void> {
+  async error(message: MPIDBValidRecord, stack: MPIDBValidRecord = null): Promise<void> {
     console.error(message, stack);
     await this.#log("error", message, stack);
   }
   async clearLog(): Promise<void> {
-    await this.#idb.delete("log");
+    await this.#idb.delete({
+      objectStoreName: "log"
+    });
     this.#log("clear", "Das Protokoll wurde erfolgreich gelöscht", null);
     console.clear();
   }
@@ -451,33 +449,36 @@ class Server extends EventTarget {
       error: true
     }): Promise<{
       type: string;
-      message: IndexedDBSupportedDataTypes;
-      stack: IndexedDBSupportedDataTypes;
+      message: MPIDBValidRecord;
+      stack: MPIDBValidRecord;
       timestamp: number;
     }[]> {
     if (types.log && types.warn && types.error) {
-      return this.#idb.get("log");
+      return this.#idb.get({
+        objectStoreName: "log"
+      });
     } else {
       let type_array = [];
       types.log && type_array.push("log");
       types.warn && type_array.push("warn");
       types.error && type_array.push("error");
-      return this.#idb.get("log", {
-        type: new RegExp("^(" + type_array.join("|") + ")$")
+      return this.#idb.get({
+        objectStoreName: "log",
+        ranges: [new MPIDBKeyRanges<{ type: string; }>().only("type", type_array, true)]
       });
     }
   }
 
   #responseFunctions: Map<string, {
     assets: Record<string, Link>;
-    responseFunction: (request: Request, files: { [s in string]: CacheResponse; }, args: IndexedDBSupportedDataTypes) => Response | Promise<Response>;
+    responseFunction: (request: Request, files: { [s in string]: MPCacheResponse; }, args: MPIDBValidRecord[]) => Response | Promise<Response>;
   }> = new Map();
-  async registerResponseFunction<args extends IndexedDBSupportedDataTypes, Assets extends string>(id: string, assets: Record<Assets, string>, responseFunction: (request: Request, files: Record<Assets, CacheResponse>, args: args) => Response | Promise<Response>) {
+  async registerResponseFunction<args extends MPIDBValidRecord[], Assets extends string>(id: string, assets: Record<Assets, string>, responseFunction: (request: Request, files: Record<Assets, MPCacheResponse>, args: args) => Response | Promise<Response>) {
     await Promise.all(Object.values(assets).map(async (asset: Link) => {
       if (asset.startsWith("local://")) {
         return;
       }
-      if ((await this.#idb.count("assets", { id: asset })) == 0) {
+      if ((await this.#idb.count({ objectStoreName: "assets", key: asset })) == 0) {
         this.registerAsset(asset, await (await globalThis.fetch(asset)).blob());
       }
     }));
@@ -497,10 +498,10 @@ class Server extends EventTarget {
     return new Response(error, responseInit);
   }
   async registerRoute(route: Route): Promise<void> {
-    await this.#idb.add("routes", route);
+    await this.#idb.add({ objectStoreName: "routes", record: route });
   }
   async registerAsset(id: Link, blob: Blob): Promise<void> {
-    await this.#idb.put("assets", { id, blob });
+    await this.#idb.put({ objectStoreName: "assets", record: { id, blob } });
     await this.registerRoute({
       priority: 1,
       type: "string",
@@ -511,9 +512,9 @@ class Server extends EventTarget {
     });
   }
   async registerRedirection(routeSelector: RouteSelector, destination: string) {
-    await this.#idb.add(
-      "routes",
-      <DynamicRoute>Object.assign(
+    await this.#idb.add({
+      objectStoreName: "routes",
+      record: <DynamicRoute><unknown>Object.assign(
         {
           storage: "dynamic",
           priority: 0,
@@ -524,7 +525,7 @@ class Server extends EventTarget {
         },
         routeSelector
       )
-    );
+    });
   }
 
   #ononline: (this: this, ev: ServerEventMap["online"]) => any = null;
@@ -958,7 +959,38 @@ type DynamicRoute = RouteSelector & {
   storage: "dynamic";
   script: Link;
   function: string;
-  arguments: IndexedDBSupportedDataTypes;
+  arguments: MPIDBValidRecord[];
 }
 type Route = CacheRoute | StaticRoute | DynamicRoute;
 type Link<Protocol extends string = "http" | "https" | "local"> = `${Protocol}://${string}`;
+
+interface ServerMPIDBInit extends MPIDBInit {
+  settings: {
+    Records: { key: keyof ServerSettingsMap, value: ServerSettingsMap[keyof ServerSettingsMap]; };
+    KeyPath: "key";
+    Indices: null;
+  }
+  routes: {
+    Records: Route;
+    KeyPath: null;
+    Indices: {
+      by_priority: "priority";
+      by_function: "function";
+      by_key: "key";
+      by_string: "string";
+      by_storage: "storage";
+    }
+  }
+  log: {
+    Records: { type: string, message: MPIDBValidRecord, stack: MPIDBValidRecord, timestamp: number };
+    KeyPath: "id";
+    Indices: {
+      by_type: "type";
+    };
+  }
+  assets: {
+    Records: { id: string; blob: Blob; };
+    KeyPath: "id";
+    Indices: null;
+  }
+}

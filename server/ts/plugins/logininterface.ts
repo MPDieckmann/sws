@@ -1,5 +1,4 @@
-/// <reference no-default-lib="true" />
-/// <reference path="../server/server.ts" />
+/// <reference path="../server/index.ts" />
 
 abstract class LoginInterface extends EventTarget {
   public abstract isLoggedIn(): boolean | PromiseLike<boolean>;

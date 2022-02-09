@@ -1,5 +1,4 @@
-/// <reference no-default-lib="true" />
-/// <reference path="../server/server.ts" />
+/// <reference path="../server/index.ts" />
 
 abstract class APIFetchInterface extends EventTarget {
   public abstract readonly API_VERSION: number;
@@ -13,7 +12,7 @@ abstract class APIFetchInterface extends EventTarget {
   #connected: boolean = false;
   get connected() { return this.#connected; }
   get pinging() { return this.#pinging; }
-  get online() { return server.online; }
+  get online() { return Server.server.online; }
   #pingTimeout: number = 5000;
   get pingTimeout() {
     return this.#pingTimeout;
@@ -28,13 +27,13 @@ abstract class APIFetchInterface extends EventTarget {
   constructor() {
     super();
 
-    server.addEventListener("beforefetch", event => {
+    Server.server.addEventListener("beforefetch", event => {
       if (this.API_SCOPE_REGEXP.test(event.data.url)) {
         event.data.respondWith(globalThis.fetch(event.data.request));
       }
     });
 
-    server.addEventListener("online", async () => {
+    Server.server.addEventListener("online", async () => {
       while (this.online && this.#pingTimeout) {
         if (this.#pinging) {
           await this.awaitEventListener("afterping");

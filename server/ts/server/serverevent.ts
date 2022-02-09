@@ -1,9 +1,4 @@
-/// <reference no-default-lib="true" />
-/// <reference path="index.ts" />
-
 class ServerEvent<G extends keyof ServerEventGroupMap> extends Event {
-  [Symbol.toStringTag] = "ServerEvent";
-
   #group: G | null;
   get group() {
     return this.#group;

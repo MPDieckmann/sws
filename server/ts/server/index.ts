@@ -3,10 +3,9 @@
 /// <reference lib="webworker" />
 /// <reference path="serviceworker.d.ts" />
 /// <reference path="helper.ts" />
-/// <reference path="cacheresponse.ts" />
-/// <reference path="indexeddb.ts" />
-/// <reference path="indexeddbindex.ts" />
-/// <reference path="indexeddbevent.ts" />
+/// <reference path="../libs/mpcacheresponse/index.ts" />
+/// <reference path="../libs/mpdate/index.ts" />
+/// <reference path="../libs/mpidb/index.ts" />
 /// <reference path="serverevent.ts" />
 /// <reference path="server.ts" />
 

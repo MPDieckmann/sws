@@ -1,8 +1,16 @@
-/// <reference no-default-lib="true" />
-/// <reference path="../server/server.ts" />
+/// <reference path="../server/index.ts" />
 
 class Scope<GET extends string = string, POST extends string = string, Data extends Record<string, any> = any> {
-  [Symbol.toStringTag] = "Scope";
+
+  /**
+   * Convert special characters to HTML entities
+   * 
+   * @param string The string being converted.
+   * @return The converted string.
+   */
+  static htmlspecialchars(string: string): string {
+    return string.toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+  }
 
   readonly GET = <Record<GET, string>>{};
   readonly POST = <Record<POST, string>>{};
@@ -66,14 +74,14 @@ class Scope<GET extends string = string, POST extends string = string, Data exte
    * 
    * @param template Der Template-String
    */
-  async build(template: string | CacheResponse): Promise<string> {
-    if (template instanceof CacheResponse) {
+  async build(template: string | MPCacheResponse): Promise<string> {
+    if (template instanceof MPCacheResponse) {
       template = await template.text();
     }
-    let matches = template.match(/\{\{ (generate_[a-z0-9_]+)\(([a-z0-9_, -+]*)\) \}\}/g);
+    let matches = template.match(/\{\{ (generate_[A-Za-z0-9_]+)\(([A-Za-z0-9_, \-+]*)\) \}\}/g);
     if (matches) {
       for (let value of matches) {
-        let match = /\{\{ (generate_[a-z0-9_]+)\(([a-z0-9_, -+]*)\) \}\}/.exec(value);
+        let match = /\{\{ (generate_[A-Za-z0-9_]+)\(([A-Za-z0-9_, \-+]*)\) \}\}/.exec(value);
 
         if (typeof this[match[1]] == "function") {
           let pattern = match[0];
@@ -87,8 +95,8 @@ class Scope<GET extends string = string, POST extends string = string, Data exte
     return template;
   }
 
-  async toResponse(template: string | CacheResponse): Promise<Response> {
-    if (template instanceof CacheResponse) {
+  async toResponse(template: string | MPCacheResponse): Promise<Response> {
+    if (template instanceof MPCacheResponse) {
       template = await template.text();
     }
     return new Response(await this.build(template), this);
@@ -109,11 +117,11 @@ class Scope<GET extends string = string, POST extends string = string, Data exte
       id_prefix: "",
     });
 
-    let html = "<ul class=\"" + this.htmlspecialchars(options.menu_class) + "\">";
+    let html = "<ul class=\"" + Scope.htmlspecialchars(options.menu_class) + "\">";
 
     for (let id in menu) {
       let item = menu[id];
-      html += "<li class=\"" + this.htmlspecialchars(options.entry_class);
+      html += "<li class=\"" + Scope.htmlspecialchars(options.entry_class);
       if ("submenu" in item && Object.keys(item.submenu).length > 0) {
         html += " has-submenu";
       }
@@ -121,10 +129,10 @@ class Scope<GET extends string = string, POST extends string = string, Data exte
       if (this.url.origin + this.url.pathname == url.origin + url.pathname) {
         html += " selected";
       }
-      html += "\" id=\"" + this.htmlspecialchars(options.id_prefix + id) + "_item\"><a href=\"" + this.htmlspecialchars(item.href) + "\" id=\"" + this.htmlspecialchars(id) + "\">" + this.htmlspecialchars(item.label) + "</a>";
+      html += "\" id=\"" + Scope.htmlspecialchars(options.id_prefix + id) + "_item\"><a href=\"" + Scope.htmlspecialchars(item.href) + "\" id=\"" + Scope.htmlspecialchars(id) + "\">" + Scope.htmlspecialchars(item.label) + "</a>";
       if ("submenu" in item && Object.keys(item.submenu).length > 0) {
         html += this.build_menu(item.submenu, Object.assign({
-          id_prefix: this.htmlspecialchars("id_prefix" in options ? options.id_prefix + "-" + id + "-" : id + "-"),
+          id_prefix: Scope.htmlspecialchars("id_prefix" in options ? options.id_prefix + "-" + id + "-" : id + "-"),
           menu_class: options.submenu_class,
         }, options));
       }
@@ -133,16 +141,6 @@ class Scope<GET extends string = string, POST extends string = string, Data exte
 
     html += "</ul>";
     return html;
-  }
-
-  /**
-   * Convert special characters to HTML entities
-   * 
-   * @param string The string being converted.
-   * @return The converted string.
-   */
-  htmlspecialchars(string: string): string {
-    return string.toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
   }
 
   #styles: { [id in string]: { id: id; href: string; media: string; type: string; } } = {};
@@ -155,8 +153,8 @@ class Scope<GET extends string = string, POST extends string = string, Data exte
    * @param media Media Informationen
    * @param type Typ des Stylesheets
    */
-  add_style(id: string, href: string | CacheResponse, media: string = "all,screen,handheld,print", type: string = "text/css") {
-    this.#styles[id] = { id, href: href instanceof CacheResponse ? href.url : href, media, type };
+  add_style(id: string, href: string | MPCacheResponse, media: string = "all,screen,handheld,print", type: string = "text/css") {
+    this.#styles[id] = { id, href: href instanceof MPCacheResponse ? href.url : href, media, type };
   }
 
   /**
@@ -179,8 +177,8 @@ class Scope<GET extends string = string, POST extends string = string, Data exte
    * @param type Typ des Skripts
    * @param position Gibt an, an welcher Position das Sktip eingefügt werden soll
    */
-  add_script(id: string, src: string | CacheResponse, type: string = "text/javascript", position: string = "head") {
-    this.#scripts[id] = { id, src: src instanceof CacheResponse ? src.url : src, type, position };
+  add_script(id: string, src: string | MPCacheResponse, type: string = "text/javascript", position: string = "head") {
+    this.#scripts[id] = { id, src: src instanceof MPCacheResponse ? src.url : src, type, position };
   }
 
   /**
@@ -239,7 +237,7 @@ class Scope<GET extends string = string, POST extends string = string, Data exte
    * @param index Index des in data
    * @param escape Gibt an, wie die Zeichenfolge formatiert werden soll
    */
-  generate_value(index: keyof Data, escape: "html" | "url" | "json" | "plain"): string {
+  generate_value(index: keyof Data, escape?: "html" | "url" | "json" | "plain"): string {
     if (!this.data) {
       return "Failed to load data";
     }
@@ -248,7 +246,7 @@ class Scope<GET extends string = string, POST extends string = string, Data exte
     }
     switch (escape) {
       case "html":
-        return this.htmlspecialchars(String(this.data[index]));
+        return Scope.htmlspecialchars(String(this.data[index]));
       case "url":
         return encodeURI(String(this.data[index]));
       case "json":
@@ -260,12 +258,22 @@ class Scope<GET extends string = string, POST extends string = string, Data exte
   }
 
   /**
+   * Gibt eine Server-Einstellung aus
+   * 
+   * @param key Gibt an, welche Einstellung zurückgegeben werden soll 
+   * @param escape Gibt an, wie die Zeichenfolge formatiert werden soll
+   */
+  generate_setting(key: keyof ServerSettingsMap, escape?: "html" | "url" | "json" | "plain"): string {
+    return this.generate_value.call({ data: { setting: String(Server.server.getSetting(key)) } }, "setting", escape);
+  }
+
+  /**
    * Gibt die Version des Servers zurück
    * 
    * @param escape Gibt an, wie die Zeichenfolge formatiert werden soll
    */
   generate_version(escape: "html" | "url" | "json" | "plain") {
-    return this.generate_value.call({ version: "Version: " + server.version + (server.online ? " (Online)" : " (Offline)") }, "version", escape);
+    return this.generate_value.call({ data: { version: "Version: " + Server.server.version + (Server.server.online ? " (Online)" : " (Offline)") } }, "version", escape);
   }
 
   /**
@@ -274,7 +282,7 @@ class Scope<GET extends string = string, POST extends string = string, Data exte
    * @param escape Gibt an, wie die Zeichenfolge formatiert werden soll
    */
   generate_copyright(escape: "html" | "url" | "json" | "plain") {
-    return this.generate_value.call({ copyright: server.getSetting("copyright") }, "copyright", escape);
+    return this.generate_value.call({ data: { copyright: Server.server.getSetting("copyright") } }, "copyright", escape);
   }
 
   /**
@@ -283,7 +291,7 @@ class Scope<GET extends string = string, POST extends string = string, Data exte
    * @param escape Gibt an, wie die Zeichenfolge formatiert werden soll
    */
   generate_url(url: string = "", escape: "html" | "url" | "json" | "plain" = "url") {
-    return this.generate_value.call({ url: server.scope + url }, "url", escape);
+    return this.generate_value.call({ data: { url: Server.server.scope + url } }, "url", escape);
   }
 
   /**
@@ -292,7 +300,7 @@ class Scope<GET extends string = string, POST extends string = string, Data exte
    * @returns 
    */
   generate_offline_switch(hidden: string) {
-    return `<input type="checkbox" name="switch_offline_mode" class="switch_offline_mode" onclick="navigator.serviceWorker.controller.postMessage({type:&quot;set-setting&quot;,property:&quot;offline-mode&quot;,value:this.checked})" ${server.getSetting("offline-mode") ? ' checked=""' : ""}${hidden == "true" ? "" : ' hidden="'}/>`;
+    return `<input type="checkbox" name="switch_offline_mode" class="switch_offline_mode" onclick="navigator.serviceWorker.controller.postMessage({type:&quot;set-setting&quot;,property:&quot;offline-mode&quot;,value:this.checked})" ${Server.server.getSetting("offline-mode") ? ' checked=""' : ""}${hidden == "true" ? "" : ' hidden="'}/>`;
   }
 
   /**
@@ -304,15 +312,15 @@ class Scope<GET extends string = string, POST extends string = string, Data exte
   generate_title(mode: "page" | "site" | "full"): string {
     switch (mode) {
       case "page":
-        return this.htmlspecialchars(this.page_title);
+        return Scope.htmlspecialchars(this.page_title);
       case "site":
-        return this.htmlspecialchars(this.site_title);
+        return Scope.htmlspecialchars(this.site_title);
       case "full":
       default:
         if (this.page_title) {
-          return this.htmlspecialchars(this.page_title + " | " + this.site_title);
+          return Scope.htmlspecialchars(this.page_title + " | " + this.site_title);
         } else {
-          return this.htmlspecialchars(this.site_title);
+          return Scope.htmlspecialchars(this.site_title);
         }
     }
   }
@@ -326,7 +334,7 @@ class Scope<GET extends string = string, POST extends string = string, Data exte
     let html = "";
     for (let index in this.#styles) {
       let style = this.#styles[index];
-      html += "<link id=\"" + this.htmlspecialchars(style.id) + "\" rel=\"stylesheet\" href=\"" + this.htmlspecialchars(style.href) + "\" media=\"" + this.htmlspecialchars(style.media) + "\" type=\"" + this.htmlspecialchars(style.type) + "\" />";
+      html += "<link id=\"" + Scope.htmlspecialchars(style.id) + "\" rel=\"stylesheet\" href=\"" + Scope.htmlspecialchars(style.href) + "\" media=\"" + Scope.htmlspecialchars(style.media) + "\" type=\"" + Scope.htmlspecialchars(style.type) + "\" />";
     }
     return html;
   }
@@ -343,7 +351,7 @@ class Scope<GET extends string = string, POST extends string = string, Data exte
     for (let index in this.#scripts) {
       let script = this.#scripts[index];
       if (script.position == position) {
-        html += "<script id=\"" + this.htmlspecialchars(script.id) + "\" src=\"" + this.htmlspecialchars(script.src) + "\" type=\"" + this.htmlspecialchars(script.type) + "\"></script>";
+        html += "<script id=\"" + Scope.htmlspecialchars(script.id) + "\" src=\"" + Scope.htmlspecialchars(script.src) + "\" type=\"" + Scope.htmlspecialchars(script.type) + "\"></script>";
       }
     };
     return html;
@@ -391,11 +399,11 @@ class Scope<GET extends string = string, POST extends string = string, Data exte
         break;
     }
 
-    let entries = await server.getLog(options);
+    let entries = await Server.server.getLog(options);
     if (entries.length == 0 && hide_empty == "true") {
       return "";
     }
-    return `<span class="${this.htmlspecialchars(type)}-badge">${this.htmlspecialchars("" + entries.length)}</span>`;
+    return `<span class="${Scope.htmlspecialchars(type)}-badge">${Scope.htmlspecialchars("" + entries.length)}</span>`;
   }
 
   /**
@@ -426,6 +434,7 @@ interface BuildScopeMenuOptions {
 
 interface ServerSettingsMap {
   "site-title": string;
+  "theme-color": string;
 }
 
 /**

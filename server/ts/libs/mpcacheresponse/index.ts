@@ -1,8 +1,5 @@
-/// <reference no-default-lib="true" />
-/// <reference path="index.ts" />
-
-class CacheResponse {
-  [Symbol.toStringTag] = "CacheResponse";
+class MPCacheResponse {
+  [Symbol.toStringTag] = "MPCacheResponse";
 
   #response: Response = null;
   #arrayBuffer: ArrayBuffer;
@@ -10,19 +7,16 @@ class CacheResponse {
   #formData: FormData;
   #json: any;
   #text: string;
-  #url: Link;
-  constructor(url: Link) {
+  #url: `${"http" | "https"}://${string}`;
+  constructor(url: `${"http" | "https"}://${string}`) {
     this.#url = url;
   }
   get url() {
     return this.#url;
   }
-  async #getResponse() {
-    if (this.#response == null) {
-      this.#response = await server.fetch(this.url) || new Response(null, {
-        status: 404,
-        statusText: "File not cached: " + this.url
-      });
+  #getResponse = async () => {
+    if (this.#response === null) {
+      this.#response = await fetch(this.url);
     }
   }
   async arrayBuffer(): Promise<ArrayBuffer> {
@@ -30,7 +24,7 @@ class CacheResponse {
       await this.#getResponse();
     }
     if (!this.#arrayBuffer) {
-      this.#arrayBuffer = await this.#response.arrayBuffer();
+      this.#arrayBuffer = await this.#response.clone().arrayBuffer();
     }
     return this.#arrayBuffer;
   }
@@ -39,7 +33,7 @@ class CacheResponse {
       await this.#getResponse();
     }
     if (!this.#blob) {
-      this.#blob = await this.#response.blob();
+      this.#blob = await this.#response.clone().blob();
     }
     return this.#blob;
   }
@@ -48,7 +42,7 @@ class CacheResponse {
       await this.#getResponse();
     }
     if (!this.#formData) {
-      this.#formData = await this.#response.formData();
+      this.#formData = await this.#response.clone().formData();
     }
     return this.#formData;
   }
@@ -57,7 +51,7 @@ class CacheResponse {
       await this.#getResponse();
     }
     if (!this.#json) {
-      this.#json = await this.#response.json();
+      this.#json = await this.#response.clone().json();
     }
     return this.#json;
   }
@@ -66,11 +60,11 @@ class CacheResponse {
       await this.#getResponse();
     }
     if (!this.#text) {
-      this.#text = await this.#response.text();
+      this.#text = await this.#response.clone().text();
     }
     return this.#text;
   }
-  clone(): CacheResponse {
-    return new CacheResponse(this.#url);
+  clone(): MPCacheResponse {
+    return new MPCacheResponse(this.#url);
   }
 }
