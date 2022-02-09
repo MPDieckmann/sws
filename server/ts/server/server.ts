@@ -1,11 +1,11 @@
 class Server extends EventTarget {
   static readonly server: Server = new Server();
   #version: string;
-  readonly #cacheName = "ServerCache-20211226";
+  readonly #cacheName = location.href;
   readonly #scope = <`https://${string}`>registration.scope.replace(/\/$/, "");
   readonly #regex_safe_scope = this.#scope.escape(String.ESCAPE_REGEXP, "\\");
   #online: boolean = navigator.onLine;
-  #idb: MPIDBPromise<ServerMPIDBInit> | MPIDB<ServerMPIDBInit> = MPIDB.open<ServerMPIDBInit>("Server", 1, {
+  #idb: MPIDBPromise<ServerMPIDBInit> | MPIDB<ServerMPIDBInit> = MPIDB.open<ServerMPIDBInit>(location.href, 1, {
     settings: {
       name: "settings",
       autoIncrement: false,

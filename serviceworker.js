@@ -1468,11 +1468,11 @@ class ServerEvent extends Event {
 class Server extends EventTarget {
     constructor() {
         super();
-        this.#cacheName = "ServerCache-20211226";
+        this.#cacheName = location.href;
         this.#scope = registration.scope.replace(/\/$/, "");
         this.#regex_safe_scope = this.#scope.escape(String.ESCAPE_REGEXP, "\\");
         this.#online = navigator.onLine;
-        this.#idb = MPIDB.open("Server", 1, {
+        this.#idb = MPIDB.open(location.href, 1, {
             settings: {
                 name: "settings",
                 autoIncrement: false,
