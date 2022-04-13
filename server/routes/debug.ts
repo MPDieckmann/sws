@@ -1,6 +1,5 @@
 /// <reference path="../config.ts" />
-/// <reference path="../plugins/scope.ts" />
-
+/// <reference path="../plugins/scope/index.ts" />
 
 server.registerRoute({
   priority: 2,

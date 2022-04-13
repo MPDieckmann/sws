@@ -8,9 +8,9 @@
     "allowJs": false
   },
   "include": [
-    "ts/server/*.ts",
-    "ts/index.ts",
-    "ts/routes/*.ts"
+    "server/*.ts",
+    "index.ts",
+    "routes/*.ts"
   ],
   "exclude": [
     "**/node_modules",

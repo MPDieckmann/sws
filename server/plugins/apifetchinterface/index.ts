@@ -1,4 +1,4 @@
-/// <reference path="../server/index.ts" />
+/// <reference path="../../server/index.ts" />
 
 abstract class APIFetchInterface extends EventTarget {
   public abstract readonly API_VERSION: number;

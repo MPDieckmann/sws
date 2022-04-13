@@ -2343,9 +2343,9 @@ Server.server = new Server();
 /// <reference lib="webworker" />
 /// <reference path="serviceworker.d.ts" />
 /// <reference path="helper.ts" />
-/// <reference path="../libs/mpcacheresponse/index.ts" />
-/// <reference path="../libs/mpdate/index.ts" />
-/// <reference path="../libs/mpidb/index.ts" />
+/// <reference path="../../libs/mpcacheresponse/index.ts" />
+/// <reference path="../../libs/mpdate/index.ts" />
+/// <reference path="../../libs/mpidb/index.ts" />
 /// <reference path="serverevent.ts" />
 /// <reference path="server.ts" />
 // const DEBUG_MODE = "online";
@@ -2359,7 +2359,7 @@ server.setSetting("copyright", "\u00a9 " + new Date().getFullYear() + " MPDieckm
 // server.setSetting("id", "default");
 server.start();
 /// <reference path="config.ts" />
-/// <reference path="../server/index.ts" />
+/// <reference path="../../server/index.ts" />
 class Scope {
     constructor(request, data = {}) {
         this.GET = {};
@@ -2761,7 +2761,7 @@ class Scope {
 
  */ 
 /// <reference path="../config.ts" />
-/// <reference path="../plugins/scope.ts" />
+/// <reference path="../plugins/scope/index.ts" />
 server.registerRoute({
     priority: 2,
     type: "string",

@@ -1,4 +1,4 @@
-/// <reference path="../server/index.ts" />
+/// <reference path="../../server/index.ts" />
 
 class Scope<GET extends string = string, POST extends string = string, Data extends Record<string, any> = any> {
 

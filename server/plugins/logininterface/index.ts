@@ -1,4 +1,4 @@
-/// <reference path="../server/index.ts" />
+/// <reference path="../../server/index.ts" />
 
 abstract class LoginInterface extends EventTarget {
   public abstract isLoggedIn(): boolean | PromiseLike<boolean>;
